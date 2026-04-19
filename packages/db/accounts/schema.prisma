@@ -1,0 +1,14 @@
+// Accounts bounded context — owns users, OAuth clients, sessions, tokens.
+// This schema is consumed by apps/accounts (the OIDC IdP).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/accounts-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("ACCOUNTS_DATABASE_URL")
+}
+
+// Models will be added in Phase 1.

@@ -1,0 +1,14 @@
+// API bounded context — owns organizations, events, tickets, orders, memberships.
+// This schema is consumed by apps/api.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/api-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("API_DATABASE_URL")
+}
+
+// Models will be added in Phase 1.

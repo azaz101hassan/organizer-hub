@@ -1,0 +1,9 @@
+{
+  "name": "@organizer-hub/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared tsconfig / eslint / prettier presets",
+  "files": [
+    "tsconfig"
+  ]
+}

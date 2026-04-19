@@ -1,0 +1,21 @@
+{
+  "name": "@organizer-hub/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prisma schemas and clients for accounts and api bounded contexts",
+  "scripts": {
+    "generate:accounts": "prisma generate --schema=./accounts/schema.prisma",
+    "generate:api": "prisma generate --schema=./api/schema.prisma",
+    "generate": "pnpm generate:accounts && pnpm generate:api",
+    "migrate:accounts:dev": "prisma migrate dev --schema=./accounts/schema.prisma",
+    "migrate:api:dev": "prisma migrate dev --schema=./api/schema.prisma",
+    "studio:accounts": "prisma studio --schema=./accounts/schema.prisma",
+    "studio:api": "prisma studio --schema=./api/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.2.1"
+  }
+}
