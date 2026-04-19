@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "Prisma schemas and clients for accounts and api bounded contexts",
+  "exports": {
+    "./accounts": {
+      "types": "./client/accounts/index.d.ts",
+      "default": "./client/accounts/index.js"
+    },
+    "./api": {
+      "types": "./client/api/index.d.ts",
+      "default": "./client/api/index.js"
+    }
+  },
   "scripts": {
     "generate:accounts": "prisma generate --schema=./accounts/schema.prisma",
     "generate:api": "prisma generate --schema=./api/schema.prisma",

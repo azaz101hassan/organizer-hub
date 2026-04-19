@@ -1,9 +1,9 @@
-// Accounts bounded context — owns users, OAuth clients, sessions, tokens.
-// This schema is consumed by apps/accounts (the OIDC IdP).
+// Accounts bounded context — owns users, OAuth clients, and OIDC runtime state.
+// Consumed by apps/accounts (the OIDC IdP).
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../../../node_modules/.prisma/accounts-client"
+  output   = "../client/accounts"
 }
 
 datasource db {
@@ -11,4 +11,56 @@ datasource db {
   url      = env("ACCOUNTS_DATABASE_URL")
 }
 
-// Models will be added in Phase 1.
+// ---------- Identity ----------
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+  emailVerified Boolean  @default(false) @map("email_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// ---------- OAuth client registry ----------
+
+model OAuthClient {
+  id            String   @id @default(cuid())
+  clientId      String   @unique @map("client_id")
+  clientSecret  String?  @map("client_secret") // null for public clients (web, mobile)
+  name          String
+  redirectUris  String[] @map("redirect_uris")
+  grantTypes    String[] @default(["authorization_code", "refresh_token"]) @map("grant_types")
+  responseTypes String[] @default(["code"]) @map("response_types")
+  scopes        String[] @default(["openid", "profile", "email"])
+  isPublic      Boolean  @default(true) @map("is_public")
+  pkceRequired  Boolean  @default(true) @map("pkce_required")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("oauth_clients")
+}
+
+// ---------- node-oidc-provider runtime payloads ----------
+// One row per OIDC model instance (sessions, codes, tokens, interactions, etc).
+// Keyed by composite "${type}:${id}" — the Prisma adapter namespaces by model name.
+
+model OidcPayload {
+  id         String    @id // "${type}:${oidcId}"
+  type       String
+  payload    Json
+  grantId    String?   @map("grant_id")
+  userCode   String?   @unique @map("user_code")
+  uid        String?   @unique
+  expiresAt  DateTime? @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([type])
+  @@index([grantId])
+  @@index([expiresAt])
+  @@map("oidc_payloads")
+}

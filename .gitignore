@@ -53,6 +53,10 @@ coverage/
 
 # Prisma
 **/prisma/migrations/dev.db*
+packages/db/client/
+
+# OIDC signing keys (generated locally, never committed)
+.keys/
 
 # Claude Code
 .claude/
