@@ -1,5 +1,6 @@
-// API bounded context — owns organizations, events, tickets, orders, memberships.
-// This schema is consumed by apps/api.
+// API bounded context — owns organizations, memberships, events.
+// Consumed by apps/api. The `userId` columns reference User.id from
+// accounts_db; deliberately no FK across the bounded-context boundary.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,4 +12,73 @@ datasource db {
   url      = env("API_DATABASE_URL")
 }
 
-// Models will be added in Phase 1.
+// ---------- Enums ----------
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+// ---------- Organizations ----------
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  createdBy   String   @map("created_by") // sub from accounts; no FK across contexts
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  events      Event[]
+
+  @@map("organizations")
+}
+
+// ---------- Memberships ----------
+
+model Membership {
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  userId         String         @map("user_id") // sub from accounts
+  role           MembershipRole
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// ---------- Events ----------
+
+model Event {
+  id             String      @id @default(cuid())
+  organizationId String      @map("organization_id")
+  title          String
+  slug           String      // unique within org
+  description    String?
+  startsAt       DateTime    @map("starts_at")
+  endsAt         DateTime?   @map("ends_at")
+  venue          String?
+  status         EventStatus @default(DRAFT)
+  publishedAt    DateTime?   @map("published_at")
+  createdBy      String      @map("created_by") // sub from accounts
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, slug])
+  @@index([status, startsAt])
+  @@map("events")
+}

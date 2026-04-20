@@ -16,11 +16,15 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/health (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/health')
       .expect(200)
-      .expect('Hello World!');
+      .expect({ ok: true });
+  });
+
+  it('/me without auth → 401', () => {
+    return request(app.getHttpServer()).get('/me').expect(401);
   });
 
   afterEach(async () => {
