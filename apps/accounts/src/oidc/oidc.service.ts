@@ -34,6 +34,7 @@ export class OidcService {
     const issuer = this.config.get<string>('ACCOUNTS_ISSUER_URL') ?? 'http://localhost:3002';
     const keysDir = this.config.get<string>('OIDC_KEYS_DIR') ?? './.keys';
     const cookieKeys = (this.config.get<string>('OIDC_COOKIE_KEYS') ?? 'dev-secret').split(',');
+    const apiAudience = this.config.get<string>('API_AUDIENCE') ?? 'organizer-api';
 
     const jwks = await loadOrGenerateJWKS(keysDir);
     const clients = await this.loadClients();
@@ -47,6 +48,19 @@ export class OidcService {
       pkce: { required: () => true },
       features: {
         devInteractions: { enabled: false },
+        resourceIndicators: {
+          enabled: true,
+          defaultResource: () => apiAudience,
+          getResourceServerInfo: () => ({
+            scope: 'openid profile email',
+            audience: apiAudience,
+            accessTokenTTL: 60 * 60, // 1h
+            accessTokenFormat: 'jwt',
+          }),
+          useGrantedResource: () => true,
+        },
+        // rpInitiatedLogout is on by default in oidc-provider v9 and its default
+        // logoutSource already auto-submits the confirmation form, so no override.
       },
       claims: {
         openid: ['sub'],
@@ -83,6 +97,7 @@ export class OidcService {
       client_name: c.name,
       client_secret: c.clientSecret ?? undefined,
       redirect_uris: c.redirectUris,
+      post_logout_redirect_uris: c.postLogoutRedirectUris,
       grant_types: c.grantTypes,
       response_types: c.responseTypes as ClientMetadata['response_types'],
       scope: c.scopes.join(' '),

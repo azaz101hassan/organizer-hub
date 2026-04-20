@@ -12,6 +12,7 @@ async function main(): Promise<void> {
       where: { clientId: 'organizer-web' },
       update: {
         redirectUris: ['http://localhost:3000/auth/callback'],
+        postLogoutRedirectUris: ['http://localhost:3000/'],
         scopes: ['openid', 'profile', 'email', 'offline_access'],
         grantTypes: ['authorization_code', 'refresh_token'],
         responseTypes: ['code'],
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
         name: 'OrganizerHub Web',
         clientSecret: null,
         redirectUris: ['http://localhost:3000/auth/callback'],
+        postLogoutRedirectUris: ['http://localhost:3000/'],
         grantTypes: ['authorization_code', 'refresh_token'],
         responseTypes: ['code'],
         scopes: ['openid', 'profile', 'email', 'offline_access'],

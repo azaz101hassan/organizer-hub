@@ -33,6 +33,7 @@ model OAuthClient {
   clientSecret  String?  @map("client_secret") // null for public clients (web, mobile)
   name          String
   redirectUris  String[] @map("redirect_uris")
+  postLogoutRedirectUris String[] @default([]) @map("post_logout_redirect_uris")
   grantTypes    String[] @default(["authorization_code", "refresh_token"]) @map("grant_types")
   responseTypes String[] @default(["code"]) @map("response_types")
   scopes        String[] @default(["openid", "profile", "email"])
