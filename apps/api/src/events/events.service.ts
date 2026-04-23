@@ -127,20 +127,19 @@ export class EventsService {
     });
     if (!current) throw new NotFoundException();
 
-    assertDateRange(patch.startsAt ?? current.startsAt, patch.endsAt ?? current.endsAt ?? undefined);
+    if (patch.startsAt !== undefined || patch.endsAt !== undefined) {
+      assertDateRange(
+        patch.startsAt ?? current.startsAt,
+        patch.endsAt ?? current.endsAt ?? undefined,
+      );
+    }
 
+    const { status: _ignored, ...fields } = patch;
     const statusPatch = this.transition(current.status, patch.status);
 
     const updated = await this.prisma.event.update({
       where: { id: eventId },
-      data: {
-        title: patch.title ?? undefined,
-        description: patch.description ?? undefined,
-        startsAt: patch.startsAt ?? undefined,
-        endsAt: patch.endsAt ?? undefined,
-        venue: patch.venue ?? undefined,
-        ...statusPatch,
-      },
+      data: { ...fields, ...statusPatch },
     });
     return toView(updated);
   }

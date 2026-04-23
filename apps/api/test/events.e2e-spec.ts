@@ -1,27 +1,15 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import type { Request } from 'express';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { MembershipRole } from '@organizer-hub/db/api';
-import { AppModule } from './../src/app.module';
-import { JwtAuthGuard } from './../src/auth/jwt-auth.guard';
 import { PrismaService } from './../src/prisma/prisma.service';
+import {
+  bootTestApp,
+  makeSubHolder,
+  stubJwtAuthGuard,
+} from './helpers/boot-test-app';
 
-const currentSub = { value: 'owner-sub' };
-
-class StubJwtAuthGuard implements CanActivate {
-  canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest<Request>();
-    req.user = { sub: currentSub.value, claims: { sub: currentSub.value } };
-    return true;
-  }
-}
+const currentSub = makeSubHolder('owner-sub');
 
 describe('Events (e2e)', () => {
   let app: INestApplication<App>;
@@ -30,23 +18,7 @@ describe('Events (e2e)', () => {
   let otherOrgId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useClass(StubJwtAuthGuard)
-      .compile();
-
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    await app.init();
-    prisma = app.get(PrismaService);
+    ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(currentSub)));
   });
 
   beforeEach(async () => {

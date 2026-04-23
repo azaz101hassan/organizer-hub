@@ -1,22 +1,9 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { EventStatus, MembershipRole } from '@organizer-hub/db/api';
-import { AppModule } from './../src/app.module';
-import { JwtAuthGuard } from './../src/auth/jwt-auth.guard';
 import { PrismaService } from './../src/prisma/prisma.service';
-
-class DenyAllGuard implements CanActivate {
-  canActivate(_ctx: ExecutionContext): boolean {
-    return false;
-  }
-}
+import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 
 describe('PublicEvents (e2e)', () => {
   let app: INestApplication<App>;
@@ -24,24 +11,8 @@ describe('PublicEvents (e2e)', () => {
   let orgId: string;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      // Public routes must work without auth even when the JWT guard would deny.
-      .overrideGuard(JwtAuthGuard)
-      .useClass(DenyAllGuard)
-      .compile();
-
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    await app.init();
-    prisma = app.get(PrismaService);
+    // Public routes must work without auth even when the JWT guard would deny.
+    ({ app, prisma } = await bootTestApp(DenyAllGuard));
   });
 
   beforeEach(async () => {

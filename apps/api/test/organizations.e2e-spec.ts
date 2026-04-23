@@ -1,50 +1,21 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import type { Request } from 'express';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
-import { JwtAuthGuard } from './../src/auth/jwt-auth.guard';
 import { PrismaService } from './../src/prisma/prisma.service';
+import {
+  bootTestApp,
+  makeSubHolder,
+  stubJwtAuthGuard,
+} from './helpers/boot-test-app';
 
-// Holder lets each test set the "current user" the override-guard injects.
-const currentSub = { value: 'user-a' };
-
-class StubJwtAuthGuard implements CanActivate {
-  canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest<Request>();
-    req.user = { sub: currentSub.value, claims: { sub: currentSub.value } };
-    return true;
-  }
-}
+const currentSub = makeSubHolder('user-a');
 
 describe('Organizations (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useClass(StubJwtAuthGuard)
-      .compile();
-
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    await app.init();
-    prisma = app.get(PrismaService);
+    ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(currentSub)));
   });
 
   beforeEach(async () => {

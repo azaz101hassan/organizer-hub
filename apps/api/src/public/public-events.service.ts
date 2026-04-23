@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventStatus, Prisma } from '@organizer-hub/db/api';
 import {
-  decodeEventCursor,
-  encodeEventCursor,
+  decodeTupleCursor,
+  encodeTupleCursor,
 } from '../common/cursor';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -58,17 +58,16 @@ export class PublicEventsService {
     );
     const now = new Date();
 
-    const tupleFilter: Prisma.EventWhereInput = opts.cursor
-      ? (() => {
-          const c = decodeEventCursor(opts.cursor);
-          return {
-            OR: [
-              { startsAt: { gt: c.startsAt } },
-              { startsAt: c.startsAt, id: { gt: c.id } },
-            ],
-          };
-        })()
-      : {};
+    let tupleFilter: Prisma.EventWhereInput = {};
+    if (opts.cursor) {
+      const c = decodeTupleCursor(opts.cursor);
+      tupleFilter = {
+        OR: [
+          { startsAt: { gt: c.at } },
+          { startsAt: c.at, id: { gt: c.id } },
+        ],
+      };
+    }
 
     const rows = await this.prisma.event.findMany({
       where: {
@@ -90,7 +89,7 @@ export class PublicEventsService {
       items,
       nextCursor:
         hasMore && last
-          ? encodeEventCursor({ startsAt: last.startsAt, id: last.id })
+          ? encodeTupleCursor({ at: last.startsAt, id: last.id })
           : null,
     };
   }
