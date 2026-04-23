@@ -80,5 +80,6 @@ model Event {
 
   @@unique([organizationId, slug])
   @@index([status, startsAt])
+  @@index([organizationId, startsAt])
   @@map("events")
 }

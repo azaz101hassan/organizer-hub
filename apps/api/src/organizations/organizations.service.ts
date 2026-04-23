@@ -1,10 +1,6 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { MembershipRole, Prisma } from '@organizer-hub/db/api';
-import { randomBytes } from 'node:crypto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { MembershipRole } from '@organizer-hub/db/api';
+import { createWithUniqueSlug, slugify } from '../common/slug';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface OrganizationView {
@@ -14,24 +10,6 @@ export interface OrganizationView {
   description: string | null;
   role: MembershipRole;
   createdAt: Date;
-}
-
-const SLUG_MAX_ATTEMPTS = 5;
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  return base || 'org';
-}
-
-function suffixSlug(base: string): string {
-  return `${base}-${randomBytes(2).toString('hex')}`;
 }
 
 function toView(
@@ -62,35 +40,21 @@ export class OrganizationsService {
     userId: string,
     input: { name: string; description?: string },
   ): Promise<OrganizationView> {
-    const baseSlug = slugify(input.name);
-
-    for (let attempt = 0; attempt < SLUG_MAX_ATTEMPTS; attempt++) {
-      const slug = attempt === 0 ? baseSlug : suffixSlug(baseSlug);
-      try {
-        const org = await this.prisma.organization.create({
-          data: {
-            name: input.name,
-            slug,
-            description: input.description ?? null,
-            createdBy: userId,
-            memberships: {
-              create: { userId, role: MembershipRole.OWNER },
-            },
+    const baseSlug = slugify(input.name, 'org');
+    const org = await createWithUniqueSlug(baseSlug, (slug) =>
+      this.prisma.organization.create({
+        data: {
+          name: input.name,
+          slug,
+          description: input.description ?? null,
+          createdBy: userId,
+          memberships: {
+            create: { userId, role: MembershipRole.OWNER },
           },
-        });
-        return toView(org, MembershipRole.OWNER);
-      } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    throw new ConflictException('could not allocate a unique slug');
+        },
+      }),
+    );
+    return toView(org, MembershipRole.OWNER);
   }
 
   async listForUser(userId: string): Promise<OrganizationView[]> {
