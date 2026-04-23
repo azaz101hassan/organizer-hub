@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { EventsModule } from './events/events.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PublicModule } from './public/public.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     OrganizationsModule,
     EventsModule,
+    PublicModule,
   ],
   controllers: [AppController],
 })
