@@ -52,6 +52,12 @@ export async function GET(req: NextRequest): Promise<Response> {
     sameSite: "lax",
     maxAge: tokens.expires_in ?? 3600,
   });
+  res.cookies.set("access_token", tokens.access_token, {
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    maxAge: tokens.expires_in ?? 3600,
+  });
   if (tokens.refresh_token) {
     res.cookies.set("refresh_token", tokens.refresh_token, {
       httpOnly: true,

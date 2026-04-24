@@ -13,6 +13,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   // Clear the local web session immediately. The IdP roundtrip will end the SSO
   // session at the provider, then redirect back to post_logout_redirect_uri.
   res.cookies.delete("session");
+  res.cookies.delete("access_token");
   res.cookies.delete("refresh_token");
   return res;
 }

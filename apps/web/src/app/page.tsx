@@ -1,24 +1,4 @@
-import { cookies } from "next/headers";
-import { decodeJwt } from "jose";
-
-interface SessionClaims {
-  sub?: string;
-  email?: string;
-  name?: string;
-  email_verified?: boolean;
-}
-
-async function readSession(): Promise<SessionClaims | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session")?.value;
-  if (!token) return null;
-  try {
-    // Phase 1: parse only. Phase 2 will verify signature against the IdP's JWKS.
-    return decodeJwt(token) as SessionClaims;
-  } catch {
-    return null;
-  }
-}
+import { readSession } from "@/lib/api/session";
 
 export default async function Home() {
   const session = await readSession();
