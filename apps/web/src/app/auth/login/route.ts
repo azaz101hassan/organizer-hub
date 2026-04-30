@@ -14,6 +14,10 @@ export async function GET(): Promise<Response> {
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("code_challenge", challenge);
   authUrl.searchParams.set("code_challenge_method", "S256");
+  // OIDC spec requires `prompt=consent` for offline_access to survive the
+  // authorize stage; without it the IdP drops it and no refresh_token is issued.
+  // Our consent handler auto-grants for first-party clients, so this is invisible.
+  authUrl.searchParams.set("prompt", "consent");
 
   const res = NextResponse.redirect(authUrl);
   const cookieOpts = {
