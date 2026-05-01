@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipRole } from '@organizer-hub/db/api';
+import { OrganizationRole } from '@organizer-hub/db/api';
 import { createWithUniqueSlug, slugify } from '../common/slug';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -8,7 +8,7 @@ export interface OrganizationView {
   name: string;
   slug: string;
   description: string | null;
-  role: MembershipRole;
+  role: OrganizationRole;
   createdAt: Date;
 }
 
@@ -20,7 +20,7 @@ function toView(
     description: string | null;
     createdAt: Date;
   },
-  role: MembershipRole,
+  role: OrganizationRole,
 ): OrganizationView {
   return {
     id: org.id,
@@ -48,17 +48,17 @@ export class OrganizationsService {
           slug,
           description: input.description ?? null,
           createdBy: userId,
-          memberships: {
-            create: { userId, role: MembershipRole.OWNER },
+          members: {
+            create: { userId, role: OrganizationRole.OWNER },
           },
         },
       }),
     );
-    return toView(org, MembershipRole.OWNER);
+    return toView(org, OrganizationRole.OWNER);
   }
 
   async listForUser(userId: string): Promise<OrganizationView[]> {
-    const rows = await this.prisma.membership.findMany({
+    const rows = await this.prisma.organizationMember.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
       include: { organization: true },
@@ -67,12 +67,12 @@ export class OrganizationsService {
   }
 
   async getForUser(userId: string, orgId: string): Promise<OrganizationView> {
-    const membership = await this.prisma.membership.findUnique({
+    const member = await this.prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId: orgId, userId } },
       include: { organization: true },
     });
     // Non-members get 404, not 403, to avoid leaking existence.
-    if (!membership) throw new NotFoundException();
-    return toView(membership.organization, membership.role);
+    if (!member) throw new NotFoundException();
+    return toView(member.organization, member.role);
   }
 }

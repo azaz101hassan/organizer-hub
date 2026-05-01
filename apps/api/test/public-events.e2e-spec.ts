@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { EventStatus, MembershipRole } from '@organizer-hub/db/api';
+import { EventStatus, OrganizationRole } from '@organizer-hub/db/api';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 
@@ -22,8 +22,8 @@ describe('PublicEvents (e2e)', () => {
         name: 'Acme Events',
         slug: 'acme-events',
         createdBy: 'owner-sub',
-        memberships: {
-          create: { userId: 'owner-sub', role: MembershipRole.OWNER },
+        members: {
+          create: { userId: 'owner-sub', role: OrganizationRole.OWNER },
         },
       },
     });

@@ -41,11 +41,11 @@ describe('Organizations (e2e)', () => {
       });
       expect(res.body.id).toEqual(expect.any(String));
 
-      const memberships = await prisma.membership.findMany({
+      const members = await prisma.organizationMember.findMany({
         where: { userId: 'user-a' },
       });
-      expect(memberships).toHaveLength(1);
-      expect(memberships[0].role).toBe('OWNER');
+      expect(members).toHaveLength(1);
+      expect(members[0].role).toBe('OWNER');
     });
 
     it('rejects empty name with 400', async () => {

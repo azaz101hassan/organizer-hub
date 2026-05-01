@@ -1,7 +1,7 @@
 // Response shapes mirrored from apps/api views. Kept narrow on purpose — only
 // the fields the web app actually reads. Update when the api adds new fields.
 
-export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER";
+export type OrganizationRole = "OWNER" | "ADMIN" | "MEMBER";
 
 export type EventStatus = "DRAFT" | "PUBLISHED" | "CANCELLED";
 
@@ -10,7 +10,7 @@ export interface OrganizationView {
   name: string;
   slug: string;
   description: string | null;
-  role: MembershipRole;
+  role: OrganizationRole;
   createdAt: string;
 }
 

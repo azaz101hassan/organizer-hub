@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { MembershipRole } from '@organizer-hub/db/api';
+import { OrganizationRole } from '@organizer-hub/db/api';
 import { PrismaService } from './../src/prisma/prisma.service';
 import {
   bootTestApp,
@@ -30,11 +30,11 @@ describe('Events (e2e)', () => {
         name: 'Acme',
         slug: 'acme',
         createdBy: 'owner-sub',
-        memberships: {
+        members: {
           create: [
-            { userId: 'owner-sub', role: MembershipRole.OWNER },
-            { userId: 'admin-sub', role: MembershipRole.ADMIN },
-            { userId: 'member-sub', role: MembershipRole.MEMBER },
+            { userId: 'owner-sub', role: OrganizationRole.OWNER },
+            { userId: 'admin-sub', role: OrganizationRole.ADMIN },
+            { userId: 'member-sub', role: OrganizationRole.MEMBER },
           ],
         },
       },
@@ -46,8 +46,8 @@ describe('Events (e2e)', () => {
         name: 'Other',
         slug: 'other',
         createdBy: 'other-owner',
-        memberships: {
-          create: { userId: 'other-owner', role: MembershipRole.OWNER },
+        members: {
+          create: { userId: 'other-owner', role: OrganizationRole.OWNER },
         },
       },
     });

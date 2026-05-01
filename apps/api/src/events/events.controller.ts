@@ -9,7 +9,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { MembershipRole } from '@organizer-hub/db/api';
+import { OrganizationRole } from '@organizer-hub/db/api';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -25,7 +25,7 @@ export class EventsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(MembershipRole.OWNER, MembershipRole.ADMIN)
+  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   create(
     @Param('orgId') orgId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -35,19 +35,27 @@ export class EventsController {
   }
 
   @Get()
-  @Roles(MembershipRole.OWNER, MembershipRole.ADMIN, MembershipRole.MEMBER)
+  @Roles(
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  )
   list(@Param('orgId') orgId: string) {
     return this.events.listForOrg(orgId);
   }
 
   @Get(':eventId')
-  @Roles(MembershipRole.OWNER, MembershipRole.ADMIN, MembershipRole.MEMBER)
+  @Roles(
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  )
   get(@Param('orgId') orgId: string, @Param('eventId') eventId: string) {
     return this.events.getInOrg(orgId, eventId);
   }
 
   @Patch(':eventId')
-  @Roles(MembershipRole.OWNER, MembershipRole.ADMIN)
+  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   update(
     @Param('orgId') orgId: string,
     @Param('eventId') eventId: string,

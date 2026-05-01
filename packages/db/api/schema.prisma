@@ -1,4 +1,4 @@
-// API bounded context — owns organizations, memberships, events.
+// API bounded context — owns organizations, organization members, events.
 // Consumed by apps/api. The `userId` columns reference User.id from
 // accounts_db; deliberately no FK across the bounded-context boundary.
 
@@ -14,7 +14,7 @@ datasource db {
 
 // ---------- Enums ----------
 
-enum MembershipRole {
+enum OrganizationRole {
   OWNER
   ADMIN
   MEMBER
@@ -37,26 +37,26 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  events      Event[]
+  members OrganizationMember[]
+  events  Event[]
 
   @@map("organizations")
 }
 
-// ---------- Memberships ----------
+// ---------- Organization members ----------
 
-model Membership {
-  id             String         @id @default(cuid())
-  organizationId String         @map("organization_id")
-  userId         String         @map("user_id") // sub from accounts
-  role           MembershipRole
-  createdAt      DateTime       @default(now()) @map("created_at")
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String           @map("organization_id")
+  userId         String           @map("user_id") // sub from accounts
+  role           OrganizationRole
+  createdAt      DateTime         @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, userId])
   @@index([userId])
-  @@map("memberships")
+  @@map("organization_members")
 }
 
 // ---------- Events ----------
