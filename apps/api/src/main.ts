@@ -25,9 +25,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true keeps both parsed JSON and raw bytes available on each
+  // request. The Stripe webhook controller reads req.rawBody for signature
+  // verification (HMAC must run over the exact bytes Stripe signed); every
+  // other controller is unaffected and uses the parsed body as before.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
   );
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',

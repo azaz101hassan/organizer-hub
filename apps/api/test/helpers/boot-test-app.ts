@@ -36,18 +36,42 @@ export class DenyAllGuard implements CanActivate {
   }
 }
 
-export async function bootTestApp(guard: Type<CanActivate>): Promise<{
+// Provider override descriptor for tests that need to swap injectables —
+// typically the Stripe seam (StripeClient + StripeWebhookVerifier). Pass an
+// array to bootTestApp() and each entry becomes
+// `.overrideProvider(token).useValue|useClass(...)` on the testing module.
+export type ProviderOverride =
+  | { token: Type<unknown> | string | symbol; useValue: unknown }
+  | { token: Type<unknown> | string | symbol; useClass: Type<unknown> };
+
+export async function bootTestApp(
+  guard: Type<CanActivate>,
+  providerOverrides: ProviderOverride[] = [],
+): Promise<{
   app: INestApplication<App>;
   prisma: PrismaService;
 }> {
-  const moduleFixture = await Test.createTestingModule({
-    imports: [AppModule],
-  })
+  let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideGuard(JwtAuthGuard)
-    .useClass(guard)
-    .compile();
+    .useClass(guard);
 
-  const app: INestApplication<App> = moduleFixture.createNestApplication();
+  for (const override of providerOverrides) {
+    const ob = builder.overrideProvider(override.token);
+    if ('useValue' in override) {
+      builder = ob.useValue(override.useValue);
+    } else {
+      builder = ob.useClass(override.useClass);
+    }
+  }
+
+  const moduleFixture = await builder.compile();
+
+  // rawBody: true mirrors production main.ts so e2e webhook tests can exercise
+  // the StripeWebhookVerifier path end-to-end (and so any future raw-body
+  // consumer in the AppModule doesn't break under test only).
+  const app: INestApplication<App> = moduleFixture.createNestApplication({
+    rawBody: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

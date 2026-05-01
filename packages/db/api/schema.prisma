@@ -83,3 +83,30 @@ model Event {
   @@index([organizationId, startsAt])
   @@map("events")
 }
+
+// ---------- Billing ----------
+
+// Maps an OrganizerHub user (OIDC `sub`) to a Stripe Customer. Lazy-created on
+// first checkout: getOrCreateStripeCustomer(userSub) upserts here. The Stripe
+// Customer is the source of truth; this row is only the lookup.
+model BillingCustomer {
+  id               String   @id @default(cuid())
+  userId           String   @unique @map("user_id")
+  stripeCustomerId String   @unique @map("stripe_customer_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("billing_customers")
+}
+
+// Idempotency / dedupe gate for incoming Stripe webhook events. Inserted at
+// the end of the handler transaction; P2002 on a redelivered event causes the
+// handler to swallow the duplicate and ack 200. Payload is not stored — Stripe
+// remains the source of truth for replay.
+model WebhookEvent {
+  stripeEventId String   @id @map("stripe_event_id")
+  type          String
+  receivedAt    DateTime @default(now()) @map("received_at")
+
+  @@index([type])
+  @@map("webhook_events")
+}
