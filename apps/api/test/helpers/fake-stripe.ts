@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/require-await -- the fake mirrors the
  * Stripe SDK's async surface so production code can `await` it; the fake
  * itself has no real async work, but the API contract has to match. */
+import { BadRequestException } from '@nestjs/common';
 import type { Stripe } from '../../src/billing/stripe-types';
 
 // Lightweight in-memory Stripe stand-ins used by e2e specs. Each fake records
@@ -352,14 +353,17 @@ export class FakeStripeWebhookVerifier {
     _rawBody: Buffer | string,
     signature: string | undefined,
   ): Stripe.Event {
+    // Mirror the real StripeWebhookVerifier failure modes: bad signature →
+    // BadRequestException (the controller layer surfaces 400); missing
+    // signature → same. The fake intentionally bubbles a non-Nest exception
+    // when its queue is empty, since that's a *test wiring* bug, not a
+    // production-shaped failure mode worth simulating.
     if (this.throwOnNext) {
       this.throwOnNext = false;
-      const err = new Error('Invalid webhook signature');
-      (err as Error & { status?: number }).status = 400;
-      throw err;
+      throw new BadRequestException('Invalid webhook signature');
     }
     if (!signature) {
-      throw new Error('missing signature');
+      throw new BadRequestException('Missing Stripe-Signature header');
     }
     const evt = this.queue.shift();
     if (!evt) throw new Error('FakeStripeWebhookVerifier: no event queued');
