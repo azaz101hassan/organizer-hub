@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { EventsModule } from './events/events.module';
+import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
@@ -14,6 +15,7 @@ import { PublicModule } from './public/public.module';
     PrismaModule,
     AuthModule,
     BillingModule,
+    MembershipsModule,
     OrganizationsModule,
     EventsModule,
     PublicModule,

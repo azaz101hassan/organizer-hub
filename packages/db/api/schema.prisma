@@ -26,6 +26,29 @@ enum EventStatus {
   CANCELLED
 }
 
+// Three tiers, ordered by inclusivity: GOLD covers everything SILVER does,
+// SILVER covers everything BRONZE does. `tierLevel` is the numeric form used
+// for coverage comparisons (TicketType.min_tier_level vs Membership.tierLevel).
+enum MembershipTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+// Mirrors the Stripe subscription status enum we care about. Stripe also emits
+// `trialing` and `unpaid`/`incomplete*` states; we mirror them verbatim so a
+// raw `syncStripeData` upsert never has to bucket statuses lossily.
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAUSED
+}
+
 // ---------- Organizations ----------
 
 model Organization {
@@ -109,4 +132,44 @@ model WebhookEvent {
 
   @@index([type])
   @@map("webhook_events")
+}
+
+// ---------- Memberships ----------
+
+// Catalog row for one of the six membership SKUs (tier × cadence). The
+// `lookupKey` matches the `lookup_key` configured on the corresponding
+// Stripe Price — `syncStripeData` reads that key from the subscription item
+// to derive the local tier and tierLevel. Stripe owns price + amount; this
+// row owns the local mapping and display copy.
+model MembershipPlan {
+  id          String         @id @default(cuid())
+  lookupKey   String         @unique @map("lookup_key")
+  tier        MembershipTier
+  tierLevel   Int            @map("tier_level")
+  displayName String         @map("display_name")
+  cadence     String // 'monthly' | 'yearly' — string, not enum, to mirror Stripe's `recurring.interval` shape
+
+  @@unique([tier, cadence])
+  @@map("membership_plans")
+}
+
+// Local mirror of a Stripe subscription, keyed by `userId` (one active
+// subscription per user is enforced via @unique). `syncStripeData(customerId)`
+// upserts this row from a Stripe Subscription read; Stripe remains the source
+// of truth, this row is the read cache so coverage checks and dashboard
+// renders don't touch the network.
+model Membership {
+  id                   String             @id @default(cuid())
+  userId               String             @unique @map("user_id")
+  stripeCustomerId     String             @map("stripe_customer_id")
+  stripeSubscriptionId String             @unique @map("stripe_subscription_id")
+  status               SubscriptionStatus
+  tier                 MembershipTier
+  tierLevel            Int                @map("tier_level")
+  currentPeriodEnd     DateTime           @map("current_period_end")
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  @@index([stripeCustomerId])
+  @@map("memberships")
 }
