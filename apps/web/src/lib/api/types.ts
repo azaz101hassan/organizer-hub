@@ -45,3 +45,35 @@ export interface PublicEventsPage {
   items: PublicEventView[];
   nextCursor: string | null;
 }
+
+export type MembershipTier = "BRONZE" | "SILVER" | "GOLD";
+
+export type SubscriptionStatus =
+  | "ACTIVE"
+  | "TRIALING"
+  | "PAST_DUE"
+  | "CANCELED"
+  | "UNPAID"
+  | "INCOMPLETE"
+  | "INCOMPLETE_EXPIRED"
+  | "PAUSED";
+
+export interface MembershipPlanView {
+  lookupKey: string;
+  tier: MembershipTier;
+  tierLevel: number;
+  displayName: string;
+  cadence: string;
+}
+
+export interface MembershipView {
+  userId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  status: SubscriptionStatus;
+  tier: MembershipTier;
+  tierLevel: number;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  updatedAt: string;
+}

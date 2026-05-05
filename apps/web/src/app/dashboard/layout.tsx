@@ -21,6 +21,12 @@ export default async function DashboardLayout({
             OrganizerHub
           </Link>
           <div className="flex items-center gap-4 text-xs text-zinc-500">
+            <Link
+              href="/dashboard/membership"
+              className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+            >
+              Membership
+            </Link>
             <span className="hidden sm:inline">
               {session.email ?? session.sub}
             </span>

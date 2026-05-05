@@ -51,12 +51,21 @@ export default async function Home() {
           )}
         </div>
 
-        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 flex items-center justify-center gap-4">
           <Link
             href="/events"
             className="text-sm text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
           >
             Browse events →
+          </Link>
+          <span aria-hidden className="text-zinc-300 dark:text-zinc-700">
+            ·
+          </span>
+          <Link
+            href="/membership"
+            className="text-sm text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+          >
+            Become a member →
           </Link>
         </div>
       </div>

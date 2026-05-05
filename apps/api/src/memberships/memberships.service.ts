@@ -42,6 +42,14 @@ export interface MembershipView {
   updatedAt: Date;
 }
 
+export interface MembershipPlanView {
+  lookupKey: string;
+  tier: MembershipTier;
+  tierLevel: number;
+  displayName: string;
+  cadence: string;
+}
+
 // Map a Stripe Price `lookup_key` (the canonical id we configure in the
 // Stripe Dashboard, e.g. `membership_gold_monthly`) to a local tier/level.
 // Strict: an unknown lookup_key throws — `syncStripeData` would rather skip
@@ -222,6 +230,42 @@ export class MembershipsService {
     if (!row) return null;
     if (!COVERAGE_STATUSES.has(row.status)) return null;
     return toView(row);
+  }
+
+  // Return the user's current Membership row regardless of status — used by
+  // the dashboard which needs to show "Canceling on …", "Past due", etc.,
+  // not just live coverage. If the row is missing but a Stripe Customer
+  // exists, opportunistically syncs so a missed/late webhook doesn't leave
+  // the dashboard stuck on "no membership" right after Checkout.
+  async getMembershipForUser(userId: string): Promise<MembershipView | null> {
+    const existing = await this.prisma.membership.findUnique({
+      where: { userId },
+    });
+    if (existing) return toView(existing);
+
+    const billing = await this.prisma.billingCustomer.findUnique({
+      where: { userId },
+    });
+    if (!billing) return null;
+
+    return this.syncStripeData(billing.stripeCustomerId);
+  }
+
+  // Return the seeded plan catalog. Public surface — anonymous callers see
+  // tier, cadence, display name, and the Stripe Price `lookup_key` they'll
+  // pass to /billing/checkout/membership. Stripe Price IDs are intentionally
+  // omitted — the lookup_key is the stable contract.
+  async listPlans(): Promise<MembershipPlanView[]> {
+    const rows = await this.prisma.membershipPlan.findMany({
+      orderBy: [{ tierLevel: 'asc' }, { cadence: 'asc' }],
+    });
+    return rows.map((row) => ({
+      lookupKey: row.lookupKey,
+      tier: row.tier,
+      tierLevel: row.tierLevel,
+      displayName: row.displayName,
+      cadence: row.cadence,
+    }));
   }
 
   // Returns true iff the user has an active membership whose tierLevel

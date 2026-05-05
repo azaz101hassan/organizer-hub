@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { App } from 'supertest/types';
+import request from 'supertest';
 import {
   MembershipTier,
   SubscriptionStatus,
@@ -74,6 +75,25 @@ describe('Memberships (e2e)', () => {
       { token: StripeClient, useValue: fakeStripe },
     ]));
     memberships = app.get(MembershipsService);
+
+    // Ensure the seeded plan catalog exists in this DB. Tests that hit
+    // /public/memberships need the six rows; tests against syncStripeData
+    // also indirectly depend on them once we wire coverage in U7/U8.
+    const seeds = [
+      { lookupKey: 'membership_bronze_monthly', tier: 'BRONZE' as const, tierLevel: 1, displayName: 'Bronze (monthly)', cadence: 'monthly' },
+      { lookupKey: 'membership_bronze_yearly', tier: 'BRONZE' as const, tierLevel: 1, displayName: 'Bronze (yearly)', cadence: 'yearly' },
+      { lookupKey: 'membership_silver_monthly', tier: 'SILVER' as const, tierLevel: 2, displayName: 'Silver (monthly)', cadence: 'monthly' },
+      { lookupKey: 'membership_silver_yearly', tier: 'SILVER' as const, tierLevel: 2, displayName: 'Silver (yearly)', cadence: 'yearly' },
+      { lookupKey: 'membership_gold_monthly', tier: 'GOLD' as const, tierLevel: 3, displayName: 'Gold (monthly)', cadence: 'monthly' },
+      { lookupKey: 'membership_gold_yearly', tier: 'GOLD' as const, tierLevel: 3, displayName: 'Gold (yearly)', cadence: 'yearly' },
+    ];
+    for (const p of seeds) {
+      await prisma.membershipPlan.upsert({
+        where: { lookupKey: p.lookupKey },
+        create: p,
+        update: p,
+      });
+    }
   });
 
   beforeEach(async () => {
@@ -250,6 +270,65 @@ describe('Memberships (e2e)', () => {
     it('returns false until U7/U8 wire the real coverage check', async () => {
       const allowed = await memberships.canClaimFree(USER, 'evt', 'tt');
       expect(allowed).toBe(false);
+    });
+  });
+
+  describe('GET /memberships/me', () => {
+    it('returns the row when present', async () => {
+      fakeStripe.seedSubscription(makeSub());
+      await memberships.syncStripeData(CUSTOMER);
+
+      const res = await request(app.getHttpServer())
+        .get('/memberships/me')
+        .expect(200);
+
+      expect(res.body.userId).toBe(USER);
+      expect(res.body.tier).toBe(MembershipTier.GOLD);
+    });
+
+    it('opportunistically syncs when row missing but BillingCustomer exists', async () => {
+      // BillingCustomer is already seeded in beforeEach; no Membership row yet.
+      fakeStripe.seedSubscription(makeSub());
+
+      const res = await request(app.getHttpServer())
+        .get('/memberships/me')
+        .expect(200);
+
+      expect(res.body.tier).toBe(MembershipTier.GOLD);
+      const row = await prisma.membership.findUnique({
+        where: { userId: USER },
+      });
+      expect(row).not.toBeNull();
+    });
+
+    it('returns empty body when user has neither row nor BillingCustomer', async () => {
+      await prisma.billingCustomer.deleteMany({});
+      const res = await request(app.getHttpServer())
+        .get('/memberships/me')
+        .expect(200);
+      expect(res.body).toEqual({});
+    });
+  });
+
+  describe('GET /public/memberships', () => {
+    it('returns the seeded six-plan catalog sorted by tier then cadence', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/public/memberships')
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(6);
+      expect(res.body[0]).toMatchObject({
+        lookupKey: 'membership_bronze_monthly',
+        tier: 'BRONZE',
+        tierLevel: 1,
+        cadence: 'monthly',
+      });
+      // Stripe Price IDs must not leak — only stable lookup_keys.
+      for (const plan of res.body) {
+        expect(plan).not.toHaveProperty('stripePriceId');
+        expect(plan).not.toHaveProperty('priceId');
+      }
     });
   });
 });

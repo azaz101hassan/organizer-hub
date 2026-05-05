@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
+import { MembershipsController } from './memberships.controller';
 import { MembershipsService } from './memberships.service';
+import { PublicMembershipsController } from './public-memberships.controller';
 
-// HTTP controllers (checkout, billing portal, webhook routing into this
-// service) are wired by U4. U3 lands the service alone so coverage callers
-// can already depend on getActiveMembershipForUser / canClaimFree.
+// /memberships/me (auth) + /public/memberships (anon) live together because
+// they share MembershipsService. The auth boundary is per-route via the
+// JwtAuthGuard decorator on MembershipsController, not per-module.
 @Module({
+  controllers: [MembershipsController, PublicMembershipsController],
   providers: [MembershipsService],
   exports: [MembershipsService],
 })
