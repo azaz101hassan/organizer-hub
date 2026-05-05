@@ -11,6 +11,7 @@ import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { MembershipsService } from '../memberships/memberships.service';
 import { BillingService } from './billing.service';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
+import { CreateTicketCheckoutDto } from './dto/create-ticket-checkout.dto';
 
 // Authenticated billing surface. The matching unauth side — Stripe webhooks
 // — lives in apps/api/src/webhooks/ to make the auth/no-auth split obvious
@@ -48,5 +49,19 @@ export class BillingController {
     const customer = await this.billing.getOrCreateStripeCustomer(user.sub);
     await this.memberships.syncStripeData(customer.stripeCustomerId);
     return { status: 'scheduled' };
+  }
+
+  @Post('checkout/ticket')
+  @HttpCode(HttpStatus.OK)
+  async createTicketCheckout(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateTicketCheckoutDto,
+  ): Promise<{ url: string }> {
+    const session = await this.billing.createTicketCheckoutSession(
+      user.sub,
+      dto.ticketTypeId,
+      user.email,
+    );
+    return { url: session.url };
   }
 }

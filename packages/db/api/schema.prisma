@@ -49,6 +49,15 @@ enum SubscriptionStatus {
   PAUSED
 }
 
+// Why a ticket landed in the user's account. PAID flows through Stripe
+// Checkout (payment mode) and a checkout.session.completed webhook; the
+// MEMBERSHIP_CLAIM path (U8) skips Stripe entirely. Carrying provenance on
+// the row lets refund / revocation flows in Phase 4+ route correctly.
+enum TicketSource {
+  PAID
+  MEMBERSHIP_CLAIM
+}
+
 // ---------- Organizations ----------
 
 model Organization {
@@ -100,8 +109,9 @@ model Event {
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ticketTypes  TicketType[]
+  tickets      Ticket[]
 
   @@unique([organizationId, slug])
   @@index([status, startsAt])
@@ -127,10 +137,39 @@ model TicketType {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tickets Ticket[]
 
   @@index([eventId])
   @@map("ticket_types")
+}
+
+// Issued ticket for one attendee. Source carries provenance (PAID vs
+// MEMBERSHIP_CLAIM). Idempotency is scoped to source:
+//   - PAID: stripeCheckoutSessionId @unique catches redelivered
+//     checkout.session.completed events.
+//   - MEMBERSHIP_CLAIM (U8): service-layer pre-flight enforces one claim
+//     per (userId, eventId, ticketTypeId, source=MEMBERSHIP_CLAIM).
+// We intentionally do NOT unique (userId, eventId, ticketTypeId) at the
+// schema layer — a family-of-four buying four GA tickets from one account
+// is legitimate.
+model Ticket {
+  id                      String       @id @default(cuid())
+  userId                  String       @map("user_id")
+  eventId                 String       @map("event_id")
+  ticketTypeId            String       @map("ticket_type_id")
+  source                  TicketSource
+  stripeCheckoutSessionId String?      @unique @map("stripe_checkout_session_id")
+  stripePaymentIntentId   String?      @unique @map("stripe_payment_intent_id")
+  issuedAt                DateTime     @default(now()) @map("issued_at")
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([userId, eventId, ticketTypeId, source])
+  @@map("tickets")
 }
 
 // ---------- Billing ----------

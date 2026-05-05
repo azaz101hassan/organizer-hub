@@ -1,10 +1,11 @@
 import {
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@organizer-hub/db/api';
+import { EventStatus, Prisma, TicketSource } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from './stripe.client';
 
@@ -142,5 +143,78 @@ export class BillingService {
       membership.stripeSubscriptionId,
       { cancel_at_period_end: true },
     );
+  }
+
+  // Build a Stripe Checkout Session in PAYMENT mode for a single TicketType.
+  // Pre-flight:
+  //   - 404 if the TicketType, the parent Event, or a published parent
+  //     don't all exist (hide-existence — same as a missing TicketType).
+  //   - 409 if the user already holds a PAID ticket for this (event,
+  //     ticketType). Idempotency for the actual webhook→Ticket write lives
+  //     on stripeCheckoutSessionId; this guard is a UX nicety to stop a
+  //     double-click from creating two Stripe Customers + Checkouts.
+  //
+  // Members CAN still buy paid tickets for covered events — coverage is a
+  // UI-side affordance (U8/U9), not a hard refusal here.
+  async createTicketCheckoutSession(
+    userSub: string,
+    ticketTypeId: string,
+    userEmail?: string,
+  ): Promise<CheckoutSessionView> {
+    const ticketType = await this.prisma.ticketType.findUnique({
+      where: { id: ticketTypeId },
+      include: {
+        event: { select: { id: true, status: true, title: true } },
+      },
+    });
+    if (!ticketType) throw new NotFoundException();
+    if (ticketType.event.status !== EventStatus.PUBLISHED) {
+      // Hide DRAFT/CANCELLED — buyers shouldn't be able to enumerate them.
+      throw new NotFoundException();
+    }
+
+    const existing = await this.prisma.ticket.findFirst({
+      where: {
+        userId: userSub,
+        eventId: ticketType.event.id,
+        ticketTypeId,
+        source: TicketSource.PAID,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'You already have a ticket for this event tier.',
+      );
+    }
+
+    const customer = await this.getOrCreateStripeCustomer(userSub, userEmail);
+    const webOrigin =
+      this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
+
+    const session = await this.stripeClient.stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customer.stripeCustomerId,
+      client_reference_id: userSub,
+      // Stripe Checkout caps metadata values at 500 chars each — these are
+      // all short ids so we're well under. The webhook handler reads
+      // userId from metadata AND verifies it against client_reference_id
+      // as a tamper check.
+      metadata: {
+        userId: userSub,
+        eventId: ticketType.event.id,
+        ticketTypeId,
+      },
+      line_items: [{ price: ticketType.stripePriceId, quantity: 1 }],
+      success_url: `${webOrigin}/events/${ticketType.event.id}?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${webOrigin}/events/${ticketType.event.id}?purchase=canceled`,
+    });
+
+    if (!session.url) {
+      throw new Error(
+        `Stripe Checkout Session ${session.id} returned without a url`,
+      );
+    }
+    return { id: session.id, url: session.url };
   }
 }

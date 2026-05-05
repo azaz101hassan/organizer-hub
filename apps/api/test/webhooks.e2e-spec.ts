@@ -1,7 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import { App } from 'supertest/types';
 import request from 'supertest';
-import { MembershipTier, SubscriptionStatus } from '@organizer-hub/db/api';
+import {
+  EventStatus,
+  MembershipTier,
+  OrganizationRole,
+  SubscriptionStatus,
+  TicketSource,
+} from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
 import { StripeWebhookVerifier } from './../src/billing/stripe-webhook.verifier';
 import { PrismaService } from './../src/prisma/prisma.service';
@@ -92,6 +98,9 @@ describe('Stripe webhooks (e2e)', () => {
 
   beforeEach(async () => {
     await prisma.webhookEvent.deleteMany({});
+    await prisma.ticket.deleteMany({});
+    await prisma.ticketType.deleteMany({});
+    await prisma.organization.deleteMany({});
     await prisma.membership.deleteMany({});
     await prisma.billingCustomer.deleteMany({});
     fakeStripe.reset();
@@ -306,5 +315,203 @@ describe('Stripe webhooks (e2e)', () => {
       where: { stripeEventId: 'evt_unknown' },
     });
     expect(row?.type).toBe('payment_intent.requires_action');
+  });
+
+  describe('payment-mode checkout → Ticket issuance', () => {
+    let eventDbId: string;
+    let ticketTypeDbId: string;
+
+    beforeEach(async () => {
+      // Seed an Org/Event/TicketType per test — the outer beforeEach
+      // truncates them so the membership tests stay isolated.
+      const org = await prisma.organization.create({
+        data: {
+          name: 'WH Org',
+          slug: 'wh-org',
+          createdBy: USER,
+          members: { create: { userId: USER, role: OrganizationRole.OWNER } },
+        },
+      });
+      const ev = await prisma.event.create({
+        data: {
+          organizationId: org.id,
+          title: 'Webhook Event',
+          slug: 'webhook-event',
+          startsAt: new Date('2026-06-01T18:00:00Z'),
+          status: EventStatus.PUBLISHED,
+          publishedAt: new Date(),
+          createdBy: USER,
+        },
+      });
+      eventDbId = ev.id;
+      const tt = await prisma.ticketType.create({
+        data: {
+          eventId: ev.id,
+          name: 'GA',
+          priceCents: 5000,
+          stripeProductId: `prod_wh_${ev.id}`,
+          stripePriceId: `price_wh_${ev.id}`,
+        },
+      });
+      ticketTypeDbId = tt.id;
+    });
+
+    function makePaymentSessionEvent(
+      overrides: {
+        sessionId?: string;
+        eventId?: string;
+        userIdMeta?: string;
+        clientRef?: string | null;
+        ticketTypeId?: string;
+        paymentIntent?: string | null;
+      } = {},
+    ): Stripe.Event {
+      const sessionId = overrides.sessionId ?? 'cs_pay_1';
+      return makeStripeEvent(
+        'checkout.session.completed',
+        {
+          id: sessionId,
+          mode: 'payment',
+          customer: CUSTOMER,
+          client_reference_id:
+            overrides.clientRef === null
+              ? null
+              : (overrides.clientRef ?? USER),
+          payment_intent: overrides.paymentIntent ?? `pi_${sessionId}`,
+          metadata: {
+            userId: overrides.userIdMeta ?? USER,
+            eventId: overrides.eventId ?? eventDbId,
+            ticketTypeId: overrides.ticketTypeId ?? ticketTypeDbId,
+          },
+        },
+        `evt_${sessionId}`,
+      );
+    }
+
+    it('issues a PAID Ticket on a payment-mode checkout.session.completed (AE3 buy half)', async () => {
+      fakeVerifier.queueEvent(makePaymentSessionEvent());
+
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+
+      const tickets = await prisma.ticket.findMany({
+        where: { userId: USER, eventId: eventDbId },
+      });
+      expect(tickets).toHaveLength(1);
+      expect(tickets[0]).toMatchObject({
+        source: TicketSource.PAID,
+        stripeCheckoutSessionId: 'cs_pay_1',
+        stripePaymentIntentId: 'pi_cs_pay_1',
+      });
+    });
+
+    it('dedupes a redelivered payment-mode webhook (one Ticket only)', async () => {
+      fakeVerifier.queueEvent(makePaymentSessionEvent({ sessionId: 'cs_dup' }));
+      fakeVerifier.queueEvent(makePaymentSessionEvent({ sessionId: 'cs_dup' }));
+
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+
+      const count = await prisma.ticket.count({
+        where: { stripeCheckoutSessionId: 'cs_dup' },
+      });
+      expect(count).toBe(1);
+    });
+
+    it('skips issuance silently when the referenced TicketType was deleted', async () => {
+      await prisma.ticketType.delete({ where: { id: ticketTypeDbId } });
+      fakeVerifier.queueEvent(
+        makePaymentSessionEvent({ sessionId: 'cs_deleted_tt' }),
+      );
+
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+
+      const tickets = await prisma.ticket.findMany();
+      expect(tickets).toHaveLength(0);
+    });
+
+    it('refunds and skips when client_reference_id and metadata.userId disagree', async () => {
+      fakeVerifier.queueEvent(
+        makePaymentSessionEvent({
+          sessionId: 'cs_tampered',
+          clientRef: 'someone-else',
+        }),
+      );
+
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+
+      const tickets = await prisma.ticket.findMany();
+      expect(tickets).toHaveLength(0);
+
+      const refundCalls = fakeStripe.callsFor('refunds.create');
+      expect(refundCalls).toHaveLength(1);
+      expect(refundCalls[0].args[0]).toMatchObject({
+        payment_intent: 'pi_cs_tampered',
+      });
+    });
+
+    it('refunds and skips when metadata.eventId does not match the TicketType.eventId', async () => {
+      // Seed a second event so metadata can reference an event that exists
+      // but doesn't own the ticket type — distinct from the deleted-TT path.
+      const otherEv = await prisma.event.create({
+        data: {
+          organizationId: (
+            await prisma.organization.findFirstOrThrow({
+              where: { slug: 'wh-org' },
+            })
+          ).id,
+          title: 'Other',
+          slug: 'wh-other',
+          startsAt: new Date('2026-06-02T18:00:00Z'),
+          status: EventStatus.PUBLISHED,
+          publishedAt: new Date(),
+          createdBy: USER,
+        },
+      });
+
+      fakeVerifier.queueEvent(
+        makePaymentSessionEvent({
+          sessionId: 'cs_event_mismatch',
+          eventId: otherEv.id,
+        }),
+      );
+
+      await request(app.getHttpServer())
+        .post('/webhooks/stripe')
+        .set('stripe-signature', 't=1,v1=ok')
+        .set('content-type', 'application/json')
+        .send(Buffer.from('{}'))
+        .expect(200);
+
+      const tickets = await prisma.ticket.findMany();
+      expect(tickets).toHaveLength(0);
+
+      const refundCalls = fakeStripe.callsFor('refunds.create');
+      expect(refundCalls).toHaveLength(1);
+    });
   });
 });
