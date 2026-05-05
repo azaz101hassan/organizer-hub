@@ -18,6 +18,7 @@ export interface EventView {
   venue: string | null;
   status: EventStatus;
   publishedAt: Date | null;
+  membersExcluded: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,6 +34,7 @@ interface DbEvent {
   venue: string | null;
   status: EventStatus;
   publishedAt: Date | null;
+  membersExcluded: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +51,7 @@ function toView(e: DbEvent): EventView {
     venue: e.venue,
     status: e.status,
     publishedAt: e.publishedAt,
+    membersExcluded: e.membersExcluded,
     createdAt: e.createdAt,
     updatedAt: e.updatedAt,
   };
@@ -120,6 +123,7 @@ export class EventsService {
       endsAt?: Date;
       venue?: string;
       status?: EventStatus;
+      membersExcluded?: boolean;
     },
   ): Promise<EventView> {
     const current = await this.prisma.event.findFirst({

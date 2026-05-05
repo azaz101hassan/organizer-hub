@@ -9,6 +9,7 @@ import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
+import { TicketsModule } from './tickets/tickets.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     OrganizationsModule,
     EventsModule,
     PublicModule,
+    TicketsModule,
     WebhooksModule,
   ],
   controllers: [AppController],

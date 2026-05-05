@@ -85,26 +85,52 @@ model OrganizationMember {
 // ---------- Events ----------
 
 model Event {
-  id             String      @id @default(cuid())
-  organizationId String      @map("organization_id")
-  title          String
-  slug           String      // unique within org
-  description    String?
-  startsAt       DateTime    @map("starts_at")
-  endsAt         DateTime?   @map("ends_at")
-  venue          String?
-  status         EventStatus @default(DRAFT)
-  publishedAt    DateTime?   @map("published_at")
-  createdBy      String      @map("created_by") // sub from accounts
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  id              String      @id @default(cuid())
+  organizationId  String      @map("organization_id")
+  title           String
+  slug            String // unique within org
+  description     String?
+  startsAt        DateTime    @map("starts_at")
+  endsAt          DateTime?   @map("ends_at")
+  venue           String?
+  status          EventStatus @default(DRAFT)
+  publishedAt     DateTime?   @map("published_at")
+  membersExcluded Boolean     @default(false) @map("members_excluded")
+  createdBy       String      @map("created_by") // sub from accounts
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticketTypes  TicketType[]
 
   @@unique([organizationId, slug])
   @@index([status, startsAt])
   @@index([organizationId, startsAt])
   @@map("events")
+}
+
+// ---------- Tickets ----------
+
+// Per-event ticket tier (GA / VIP / etc.). Each TicketType is mirrored to a
+// dedicated Stripe Product + Price; Prices are immutable in Stripe, so a
+// priceCents change here archives the old Price and creates a new one.
+// stripeProductId / stripePriceId never leak via the public endpoint —
+// callers see only the local id, name, priceCents, and minTierLevel.
+model TicketType {
+  id              String   @id @default(cuid())
+  eventId         String   @map("event_id")
+  name            String
+  priceCents      Int      @map("price_cents")
+  minTierLevel    Int      @default(0) @map("min_tier_level")
+  stripeProductId String   @unique @map("stripe_product_id")
+  stripePriceId   String   @unique @map("stripe_price_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("ticket_types")
 }
 
 // ---------- Billing ----------

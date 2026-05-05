@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDate,
   IsIn,
   IsOptional,
@@ -37,4 +38,8 @@ export class UpdateEventDto {
   @IsOptional()
   @IsIn([EventStatus.DRAFT, EventStatus.PUBLISHED, EventStatus.CANCELLED])
   status?: EventStatus;
+
+  @IsOptional()
+  @IsBoolean()
+  membersExcluded?: boolean;
 }
