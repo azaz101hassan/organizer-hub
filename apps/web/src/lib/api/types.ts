@@ -25,6 +25,7 @@ export interface EventView {
   venue: string | null;
   status: EventStatus;
   publishedAt: string | null;
+  membersExcluded: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -77,3 +78,37 @@ export interface MembershipView {
   cancelAtPeriodEnd: boolean;
   updatedAt: string;
 }
+
+export type TicketSource = "PAID" | "MEMBERSHIP_CLAIM";
+
+export interface TicketTypeView {
+  id: string;
+  eventId: string;
+  name: string;
+  priceCents: number;
+  minTierLevel: number;
+  stripeProductId: string;
+  stripePriceId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketTypePublicView {
+  id: string;
+  name: string;
+  priceCents: number;
+  minTierLevel: number;
+}
+
+export interface TicketView {
+  id: string;
+  userId: string;
+  eventId: string;
+  ticketTypeId: string;
+  source: TicketSource;
+  stripeCheckoutSessionId: string | null;
+  stripePaymentIntentId: string | null;
+  issuedAt: string;
+}
+
+export type CoverageVerdict = "OWNED" | "CLAIMABLE" | "BUY";

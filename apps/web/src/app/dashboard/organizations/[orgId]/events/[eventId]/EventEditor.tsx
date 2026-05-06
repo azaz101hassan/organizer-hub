@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useTransition } from "react";
 import type { EventView } from "@/lib/api/types";
 import { toDatetimeLocalValue } from "@/lib/format";
@@ -33,6 +34,7 @@ export default function EventEditor({
     startsAt: toDatetimeLocalValue(event.startsAt),
     endsAt: event.endsAt ? toDatetimeLocalValue(event.endsAt) : "",
     venue: event.venue ?? "",
+    membersExcluded: event.membersExcluded,
   };
 
   const disabled = !canMutate || formPending || transitionPending;
@@ -101,6 +103,27 @@ export default function EventEditor({
           disabled={disabled}
         />
 
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="membersExcluded"
+              defaultChecked={values.membersExcluded}
+              disabled={disabled}
+              className="mt-0.5 h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500/20 disabled:opacity-60"
+            />
+            <span>
+              <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                Exclude this event from membership coverage
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                When on, members at every tier still pay — no free claims for
+                this event.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {state.error && (
           <p className="text-sm text-red-600 dark:text-red-400">
             {state.error}
@@ -122,6 +145,21 @@ export default function EventEditor({
           </button>
         </div>
       </form>
+
+      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Ticket types
+        </h3>
+        <p className="mt-2 text-xs text-zinc-500">
+          Configure tiers, prices, and membership coverage on a dedicated page.
+        </p>
+        <Link
+          href={`/dashboard/organizations/${orgId}/events/${eventId}/ticket-types`}
+          className="mt-3 inline-block rounded-full border border-zinc-300 dark:border-zinc-700 px-4 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+        >
+          Manage ticket types →
+        </Link>
+      </div>
 
       {canMutate && (
         <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">

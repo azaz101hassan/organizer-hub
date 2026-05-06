@@ -14,6 +14,7 @@ export interface UpdateEventFormState {
     startsAt?: string;
     endsAt?: string;
     venue?: string;
+    membersExcluded?: boolean;
   };
   ok?: boolean;
 }
@@ -35,6 +36,7 @@ export async function updateEvent(
   const startsAtRaw = String(formData.get("startsAt") ?? "");
   const endsAtRaw = String(formData.get("endsAt") ?? "");
   const venue = String(formData.get("venue") ?? "").trim();
+  const membersExcluded = formData.get("membersExcluded") === "on";
 
   const fieldErrors: NonNullable<UpdateEventFormState["fieldErrors"]> = {};
   if (title.length < 2) fieldErrors.title = "Title must be at least 2 characters.";
@@ -55,6 +57,7 @@ export async function updateEvent(
     startsAt: startsAtRaw,
     endsAt: endsAtRaw,
     venue,
+    membersExcluded,
   };
 
   if (Object.keys(fieldErrors).length > 0 || !startsAt) {
@@ -72,6 +75,7 @@ export async function updateEvent(
           startsAt: startsAt.toISOString(),
           endsAt: endsAt ? endsAt.toISOString() : null,
           venue: venue || null,
+          membersExcluded,
         },
       },
     );

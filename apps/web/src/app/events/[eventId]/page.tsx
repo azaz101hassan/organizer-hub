@@ -1,26 +1,60 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ApiError, publicApiFetch } from "@/lib/api/client";
-import type { PublicEventView } from "@/lib/api/types";
+import { ApiError, apiFetch, publicApiFetch, UnauthorizedError } from "@/lib/api/client";
+import { readSession } from "@/lib/api/session";
+import type {
+  CoverageVerdict,
+  PublicEventView,
+  TicketTypePublicView,
+} from "@/lib/api/types";
 import { formatDateTime } from "@/lib/format";
+import TicketRow from "./TicketRow";
 
 export const dynamic = "force-dynamic";
 
 export default async function PublicEventDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ eventId: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { eventId } = await params;
+  const { error } = await searchParams;
 
   let event: PublicEventView;
+  let ticketTypes: TicketTypePublicView[];
   try {
-    event = await publicApiFetch<PublicEventView>(
-      `/public/events/${eventId}`,
-    );
+    [event, ticketTypes] = await Promise.all([
+      publicApiFetch<PublicEventView>(`/public/events/${eventId}`),
+      publicApiFetch<TicketTypePublicView[]>(
+        `/public/events/${eventId}/ticket-types`,
+      ),
+    ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
+  }
+
+  const session = await readSession();
+  const signedIn = session !== null;
+
+  // Coverage is per-user — only fetch if signed in. On any failure (token
+  // expired, api blip) the verdicts default to BUY so the page still renders;
+  // the api re-checks on claim, so showing Buy when CLAIMABLE was possible
+  // only costs the user a click to refresh.
+  let verdicts: Record<string, CoverageVerdict> = {};
+  if (signedIn && ticketTypes.length > 0) {
+    const ids = ticketTypes.map((t) => t.id).join(",");
+    try {
+      verdicts = await apiFetch<Record<string, CoverageVerdict>>(
+        `/memberships/me/coverage?ticketTypeIds=${encodeURIComponent(ids)}`,
+      );
+    } catch (err) {
+      if (!(err instanceof UnauthorizedError) && !(err instanceof ApiError)) {
+        throw err;
+      }
+    }
   }
 
   return (
@@ -33,12 +67,21 @@ export default async function PublicEventDetailPage({
           >
             OrganizerHub
           </Link>
-          <Link
-            href="/auth/login"
-            className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          >
-            Sign in
-          </Link>
+          {signedIn ? (
+            <Link
+              href="/dashboard/membership"
+              className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              Membership
+            </Link>
+          ) : (
+            <Link
+              href="/auth/login"
+              className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </header>
 
@@ -78,16 +121,47 @@ export default async function PublicEventDetailPage({
           </div>
         )}
 
-        <div className="mt-10">
-          <button
-            type="button"
-            disabled
-            title="Ticketing arrives in the next phase"
-            className="cursor-not-allowed rounded-full bg-zinc-300 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400 px-6 py-2.5 text-sm font-medium"
-          >
-            Get tickets · coming soon
-          </button>
-        </div>
+        <section className="mt-10">
+          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            Tickets
+          </h2>
+
+          {error && (
+            <div className="mt-3 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
+              {error}
+            </div>
+          )}
+
+          {ticketTypes.length === 0 ? (
+            <p className="mt-3 text-sm text-zinc-500">
+              Tickets aren&apos;t on sale yet — check back soon.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+              {ticketTypes.map((tt) => (
+                <TicketRow
+                  key={tt.id}
+                  eventId={eventId}
+                  ticketType={tt}
+                  verdict={verdicts[tt.id] ?? "BUY"}
+                  signedIn={signedIn}
+                />
+              ))}
+            </ul>
+          )}
+
+          {!signedIn && ticketTypes.some((t) => t.minTierLevel > 0) && (
+            <p className="mt-3 text-xs text-zinc-500">
+              <Link
+                href="/membership"
+                className="text-blue-600 hover:underline"
+              >
+                Become a member
+              </Link>{" "}
+              to claim covered tickets for free.
+            </p>
+          )}
+        </section>
       </div>
     </main>
   );
