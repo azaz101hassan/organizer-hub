@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  EventStatus,
   MembershipTier,
   Prisma,
   SubscriptionStatus,
@@ -18,6 +19,16 @@ const COVERAGE_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
   SubscriptionStatus.ACTIVE,
   SubscriptionStatus.TRIALING,
   SubscriptionStatus.PAST_DUE,
+]);
+
+// Stricter than COVERAGE_STATUSES: free-claim entitlement pauses during the
+// dunning window. The dashboard still reads PAST_DUE as "you have a
+// membership," but the user can't issue NEW free tickets until the payment
+// recovers. Issued tickets keep their entitlement (R11) — coverage is about
+// the moment of issuance, not ongoing access.
+const CLAIM_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.TRIALING,
 ]);
 
 // Stripe statuses we consider "candidates" when picking which subscription to
@@ -49,6 +60,13 @@ export interface MembershipPlanView {
   displayName: string;
   cadence: string;
 }
+
+// Coverage verdict per TicketType, surfaced to the web for primary-CTA
+// rendering on the event detail page.
+//   OWNED     — user already holds a Ticket for this type (PAID or claim).
+//   CLAIMABLE — user has membership coverage and can issue a free Ticket.
+//   BUY       — neither of the above; the only path is Stripe Checkout.
+export type CoverageVerdict = 'OWNED' | 'CLAIMABLE' | 'BUY';
 
 // Map a Stripe Price `lookup_key` (the canonical id we configure in the
 // Stripe Dashboard, e.g. `membership_gold_monthly`) to a local tier/level.
@@ -268,16 +286,109 @@ export class MembershipsService {
     }));
   }
 
-  // Returns true iff the user has an active membership whose tierLevel
-  // satisfies a TicketType's coverage requirement. Real implementation lands
-  // in U7/U8 when TicketType.min_tier_level exists. U3 leaves it as a stub
-  // that returns false so call sites can already wire the check.
-  canClaimFree(
-    _userId: string,
+  // Returns true iff the user could claim this ticket type for free right
+  // now. Disqualifiers: missing/draft/cancelled event, members_excluded
+  // toggle on, ticketType.minTierLevel === 0 (open-paid tier — not a
+  // member benefit), no claim-eligible membership, tier below requirement,
+  // or an existing MEMBERSHIP_CLAIM ticket. Re-fetches the TicketType when
+  // called solo (TicketsService.claimFree passes the loaded row through
+  // evaluateCoverage directly to avoid a second round-trip).
+  async canClaimFree(
+    userId: string,
     _eventId: string,
-    _ticketTypeId: string,
+    ticketTypeId: string,
   ): Promise<boolean> {
-    return Promise.resolve(false);
+    const ticketType = await this.prisma.ticketType.findUnique({
+      where: { id: ticketTypeId },
+      include: {
+        event: { select: { id: true, status: true, membersExcluded: true } },
+      },
+    });
+    if (!ticketType) return false;
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { userId },
+      select: { tierLevel: true, status: true },
+    });
+
+    const verdict = await this.evaluateCoverageVerdict(
+      userId,
+      ticketType,
+      membership,
+    );
+    return verdict === 'CLAIMABLE';
+  }
+
+  // Bulk coverage verdict for the event detail page. Fetches TicketTypes +
+  // existing Tickets + the user's membership in three queries (independent
+  // of how many ticketTypeIds were requested) and resolves a verdict for
+  // each. Missing or unrelated ticketTypeIds resolve to 'BUY' so the UI
+  // degrades gracefully instead of erroring.
+  async getCoverageVerdicts(
+    userId: string,
+    ticketTypeIds: string[],
+  ): Promise<Record<string, CoverageVerdict>> {
+    if (ticketTypeIds.length === 0) return {};
+
+    const ticketTypes = await this.prisma.ticketType.findMany({
+      where: { id: { in: ticketTypeIds } },
+      include: {
+        event: { select: { id: true, status: true, membersExcluded: true } },
+      },
+    });
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { userId },
+      select: { tierLevel: true, status: true },
+    });
+
+    const verdicts: Record<string, CoverageVerdict> = {};
+    for (const id of ticketTypeIds) {
+      const tt = ticketTypes.find((t) => t.id === id);
+      if (!tt) {
+        verdicts[id] = 'BUY';
+        continue;
+      }
+      verdicts[id] = await this.evaluateCoverageVerdict(
+        userId,
+        tt,
+        membership,
+      );
+    }
+    return verdicts;
+  }
+
+  // Core verdict rule. Order matters: OWNED beats CLAIMABLE beats BUY.
+  // Splitting OWNED into its own check (any source) lets the UI show "You
+  // have a ticket" both for paid purchases and prior free claims, without
+  // re-running the eligibility math.
+  private async evaluateCoverageVerdict(
+    userId: string,
+    ticketType: {
+      id: string;
+      eventId: string;
+      minTierLevel: number;
+      event: { status: EventStatus; membersExcluded: boolean };
+    },
+    membership: { tierLevel: number; status: SubscriptionStatus } | null,
+  ): Promise<CoverageVerdict> {
+    const owned = await this.prisma.ticket.findFirst({
+      where: {
+        userId,
+        eventId: ticketType.eventId,
+        ticketTypeId: ticketType.id,
+      },
+      select: { id: true },
+    });
+    if (owned) return 'OWNED';
+
+    if (ticketType.event.status !== EventStatus.PUBLISHED) return 'BUY';
+    if (ticketType.event.membersExcluded) return 'BUY';
+    if (ticketType.minTierLevel <= 0) return 'BUY';
+    if (!membership) return 'BUY';
+    if (!CLAIM_STATUSES.has(membership.status)) return 'BUY';
+    if (membership.tierLevel < ticketType.minTierLevel) return 'BUY';
+    return 'CLAIMABLE';
   }
 
   // --- internals ---
