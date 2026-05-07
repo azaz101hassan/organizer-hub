@@ -46,10 +46,65 @@ Running it on a fresh DB inserts the six rows; subsequent runs upsert in place (
 
 The seed never calls Stripe — Stripe Prices are authoritative for amount and currency, and the local table only carries the `tier`, `tierLevel`, `cadence`, and display copy used by the `/membership` pricing page and `syncStripeData`.
 
-## Webhooks (filled in by U4)
+## Webhooks
 
-Once U4 lands the `/webhooks/stripe` controller you'll add an endpoint in the Dashboard listening for `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`, and `checkout.session.completed`, plus a `stripe listen --forward-to localhost:3001/webhooks/stripe` loop for local dev. The doc will be amended then.
+The api exposes `POST /webhooks/stripe` (see `apps/api/src/webhooks/stripe-webhook.controller.ts`). Every relevant Stripe event reduces to either calling `syncStripeData(customerId)` (subscription / invoice events) or issuing a `Ticket` (paid `checkout.session.completed`). Idempotency is enforced by the `WebhookEvent` table — Stripe redelivery of the same `evt_…` is dropped at the unique-constraint catch.
 
-## Rotation procedure (filled in by U10)
+### Local dev (`stripe listen`)
 
-The webhook signing secret rotation runbook (two-active-secrets technique to avoid a rotation outage) is documented in U10 once the webhook path is wired and operational.
+1. Install the Stripe CLI: `brew install stripe/stripe-cli/stripe` (macOS) or follow the [official guide](https://docs.stripe.com/stripe-cli).
+2. `stripe login` once per machine; it opens a browser to authenticate against your Stripe account.
+3. Start the forwarder in its own terminal:
+   ```bash
+   stripe listen --forward-to http://localhost:3001/webhooks/stripe
+   ```
+   The first line of output is `Ready! Your webhook signing secret is whsec_…`. Copy that value into `.env` as `STRIPE_WEBHOOK_SECRET` and restart `pnpm dev` so the api picks it up.
+4. The CLI prints every forwarded event. Trigger a sample with `stripe trigger checkout.session.completed` — the api log shows the verifier accepting the signature and the dispatch path running. Re-fire the same trigger to confirm the dedupe table swallows the duplicate.
+
+### Production endpoint
+
+1. **Developers → Webhooks → Add endpoint**.
+2. Endpoint URL: `https://api.<your-domain>/webhooks/stripe`.
+3. Events to send:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.paid`
+   - `invoice.payment_failed`
+4. Save. Stripe shows the signing secret once — copy it into the production deploy's `STRIPE_WEBHOOK_SECRET` env var. There is no way to retrieve the secret later (a new one must be generated).
+
+### Rate limiting
+
+The verifier rejects bad signatures with `400` after the HMAC check. For portfolio scope this is enough — a real production posture would add an application-layer throttler scoped to `/webhooks/stripe` (NestJS `@nestjs/throttler`) or restrict ingress to [Stripe's published egress CIDRs](https://docs.stripe.com/ips#webhook-notifications) at the LB. Left as a Phase 4+ hardening pass.
+
+## Secret rotation
+
+The webhook signing secret is the *only* thing standing between an attacker and a forged event landing in the dispatch path. Rotate it whenever:
+
+- A laptop or CI runner that had it leaks (lost/stolen device, exposed env dump).
+- A new operator joins or leaves the team.
+- The doc says so (annual cadence is reasonable for Phase 3 scope).
+
+Stripe supports two active signing secrets per endpoint so rotation is zero-downtime:
+
+1. **Developers → Webhooks → <endpoint> → Roll signing secret**. The Dashboard prompts you to keep the old secret active for a grace window (default 24h). Confirm.
+2. Stripe shows the new `whsec_…` value once. Copy it.
+3. Deploy production with `STRIPE_WEBHOOK_SECRET` set to the new value. Verify webhooks still succeed (Stripe's Dashboard shows green checkmarks per delivery).
+4. Return to the Dashboard and **Expire** the old secret. Future deliveries are signed with the new secret only.
+
+If the rotation has to happen *now* (active compromise), skip step 1's grace window and expire the old secret immediately after the new one is in production. A short window of failed webhook deliveries is preferable to leaving a known-compromised secret valid.
+
+## Security model
+
+Stripe webhook authenticity in this app rests on three things, in order:
+
+1. **HMAC signature verification** (`StripeWebhookVerifier.construct`) — checks every payload against `STRIPE_WEBHOOK_SECRET`. Invalid signatures return `400` before any business logic runs.
+2. **`WebhookEvent` dedupe table** — prevents the same legitimate Stripe-redelivered event from running twice. **It does NOT prevent adversarial novel-event-ID forgery** — once the signing secret leaks, an attacker can craft arbitrary event IDs that haven't been seen before, and the dedupe table will happily insert them.
+3. **`syncStripeData` semantics** — every subscription/invoice handler re-fetches state from Stripe by `customer.id`. An attacker who forges a `checkout.session.completed` cannot bypass `syncStripeData` returning whatever Stripe actually has, which limits the blast radius even if (1) is compromised — they would also need to convince Stripe to insert a real subscription. Paid-ticket issuance is more exposed (the webhook handler trusts the metadata it receives), so the `userId === client_reference_id` cross-check and the auto-refund fallback (U7) are the second line of defense.
+
+Concrete operator implications:
+
+- `STRIPE_WEBHOOK_SECRET` **must not** be checked into source control. It belongs in `.env` (local), the secret store (prod), and nowhere else.
+- Treat the secret with the same care as `STRIPE_SECRET_KEY` — they are equivalently dangerous in different ways.
+- The dedupe table is for idempotency, not authentication. Don't reason about it as a defense against forged events.
