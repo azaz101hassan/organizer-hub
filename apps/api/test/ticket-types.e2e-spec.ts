@@ -10,6 +10,20 @@ import {
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { jsonBody } from './helpers/http';
+
+type TicketTypeView = {
+  id: string;
+  name: string;
+  priceCents: number;
+  minTierLevel: number;
+  stripeProductId: string;
+  stripePriceId: string;
+};
+type PublicTicketTypeView = Omit<
+  TicketTypeView,
+  'stripeProductId' | 'stripePriceId'
+>;
 
 const currentSub = makeSubHolder('owner-sub');
 
@@ -97,13 +111,14 @@ describe('TicketTypes (e2e)', () => {
         .send({ name: 'GA', priceCents: 5000, minTierLevel: 1 })
         .expect(201);
 
-      expect(res.body).toMatchObject({
+      const body = jsonBody<TicketTypeView>(res);
+      expect(body).toMatchObject({
         name: 'GA',
         priceCents: 5000,
         minTierLevel: 1,
       });
-      expect(res.body.stripeProductId).toMatch(/^prod_test_/);
-      expect(res.body.stripePriceId).toMatch(/^price_test_/);
+      expect(body.stripeProductId).toMatch(/^prod_test_/);
+      expect(body.stripePriceId).toMatch(/^price_test_/);
 
       expect(fakeStripe.callsFor('products.create')).toHaveLength(1);
       expect(fakeStripe.callsFor('prices.create')).toHaveLength(1);
@@ -163,17 +178,19 @@ describe('TicketTypes (e2e)', () => {
         .post(`/organizations/${orgId}/events/${eventId}/ticket-types`)
         .send({ name: 'GA', priceCents: 5000 })
         .expect(201);
-      const oldPriceId = created.body.stripePriceId;
+      const createdBody = jsonBody<TicketTypeView>(created);
+      const oldPriceId = createdBody.stripePriceId;
 
       const res = await request(app.getHttpServer())
         .patch(
-          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.body.id}`,
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${createdBody.id}`,
         )
         .send({ priceCents: 7500 })
         .expect(200);
 
-      expect(res.body.priceCents).toBe(7500);
-      expect(res.body.stripePriceId).not.toBe(oldPriceId);
+      const updated = jsonBody<TicketTypeView>(res);
+      expect(updated.priceCents).toBe(7500);
+      expect(updated.stripePriceId).not.toBe(oldPriceId);
 
       const updateCalls = fakeStripe.callsFor('prices.update');
       expect(updateCalls).toHaveLength(1);
@@ -192,7 +209,7 @@ describe('TicketTypes (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(
-          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.body.id}`,
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${jsonBody<TicketTypeView>(created).id}`,
         )
         .send({ name: 'General Admission' })
         .expect(200);
@@ -214,7 +231,7 @@ describe('TicketTypes (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(
-          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.body.id}`,
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${jsonBody<TicketTypeView>(created).id}`,
         )
         .expect(204);
 
@@ -237,15 +254,17 @@ describe('TicketTypes (e2e)', () => {
         .get(`/public/events/${eventId}/ticket-types`)
         .expect(200);
 
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0]).toEqual({
-        id: expect.any(String),
+      const list = jsonBody<PublicTicketTypeView[]>(res);
+      expect(list).toHaveLength(1);
+      const { id, ...rest } = list[0];
+      expect(id).toEqual(expect.any(String));
+      expect(rest).toEqual({
         name: 'GA',
         priceCents: 5000,
         minTierLevel: 2,
       });
-      expect(res.body[0]).not.toHaveProperty('stripeProductId');
-      expect(res.body[0]).not.toHaveProperty('stripePriceId');
+      expect(list[0]).not.toHaveProperty('stripeProductId');
+      expect(list[0]).not.toHaveProperty('stripePriceId');
     });
   });
 
@@ -256,7 +275,9 @@ describe('TicketTypes (e2e)', () => {
         .send({ membersExcluded: true })
         .expect(200);
 
-      expect(res.body.membersExcluded).toBe(true);
+      expect(jsonBody<{ membersExcluded: boolean }>(res).membersExcluded).toBe(
+        true,
+      );
 
       const row = await prisma.event.findUnique({ where: { id: eventId } });
       expect(row?.membersExcluded).toBe(true);

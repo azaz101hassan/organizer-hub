@@ -29,10 +29,7 @@ export class TicketTypesController {
     OrganizationRole.ADMIN,
     OrganizationRole.MEMBER,
   )
-  list(
-    @Param('orgId') orgId: string,
-    @Param('eventId') eventId: string,
-  ) {
+  list(@Param('orgId') orgId: string, @Param('eventId') eventId: string) {
     return this.ticketTypes.listForEvent(orgId, eventId);
   }
 

@@ -57,7 +57,10 @@ function toView(e: DbEvent): EventView {
   };
 }
 
-function assertDateRange(startsAt: Date | undefined, endsAt: Date | undefined): void {
+function assertDateRange(
+  startsAt: Date | undefined,
+  endsAt: Date | undefined,
+): void {
   if (startsAt && endsAt && endsAt.getTime() <= startsAt.getTime()) {
     throw new BadRequestException('endsAt must be after startsAt');
   }

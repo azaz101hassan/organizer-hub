@@ -14,6 +14,7 @@ import {
   FakeStripeClient,
   type FakeStripeSubscription,
 } from './helpers/fake-stripe';
+import { jsonBody } from './helpers/http';
 
 const USER = 'user-checkout-1';
 
@@ -58,7 +59,9 @@ describe('Billing checkout (e2e)', () => {
       .send({ lookupKey: 'membership_gold_monthly' })
       .expect(200);
 
-    expect(res.body.url).toMatch(/^https:\/\/checkout\.stripe\.test\//);
+    expect(jsonBody<{ url: string }>(res).url).toMatch(
+      /^https:\/\/checkout\.stripe\.test\//,
+    );
 
     // Lazy BillingCustomer row + Stripe Customer must both be created.
     const billing = await prisma.billingCustomer.findUnique({
@@ -152,7 +155,9 @@ describe('Billing checkout (e2e)', () => {
     const updateCalls = fakeStripe.callsFor('subscriptions.update');
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0].args[0]).toBe(subId);
-    expect(updateCalls[0].args[1]).toMatchObject({ cancel_at_period_end: true });
+    expect(updateCalls[0].args[1]).toMatchObject({
+      cancel_at_period_end: true,
+    });
 
     // Local mirror reflects cancellation (active until period end).
     const row = await prisma.membership.findUnique({

@@ -17,6 +17,9 @@ import {
   type SubHolder,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { jsonBody } from './helpers/http';
+
+type CoverageMap = Record<string, 'CLAIMABLE' | 'BUY' | 'OWNED'>;
 
 const USER = 'user-claim-1';
 const CUSTOMER = 'cus_claim_1';
@@ -406,10 +409,11 @@ describe('Ticket claim (e2e)', () => {
         )
         .expect(200);
 
-      expect(res.body[claimable.id]).toBe('CLAIMABLE');
-      expect(res.body[buy.id]).toBe('BUY');
-      expect(res.body[owned.id]).toBe('OWNED');
-      expect(res.body['unknown']).toBe('BUY');
+      const body = jsonBody<CoverageMap>(res);
+      expect(body[claimable.id]).toBe('CLAIMABLE');
+      expect(body[buy.id]).toBe('BUY');
+      expect(body[owned.id]).toBe('OWNED');
+      expect(body['unknown']).toBe('BUY');
     });
 
     it('returns an empty object when no ticketTypeIds are passed', async () => {
@@ -437,7 +441,7 @@ describe('Ticket claim (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
         .expect(200);
-      expect(res.body[tt.id]).toBe('BUY');
+      expect(jsonBody<CoverageMap>(res)[tt.id]).toBe('BUY');
     });
   });
 });

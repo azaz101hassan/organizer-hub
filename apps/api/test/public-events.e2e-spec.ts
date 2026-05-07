@@ -4,6 +4,15 @@ import { App } from 'supertest/types';
 import { EventStatus, OrganizationRole } from '@organizer-hub/db/api';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
+import { jsonBody } from './helpers/http';
+
+type PublicEvent = {
+  id: string;
+  title: string;
+  slug: string;
+  organization: { name: string; slug: string };
+};
+type PublicList = { items: PublicEvent[]; nextCursor: string | null };
 
 describe('PublicEvents (e2e)', () => {
   let app: INestApplication<App>;
@@ -47,8 +56,7 @@ describe('PublicEvents (e2e)', () => {
         slug: input.slug ?? input.title.toLowerCase().replace(/\s+/g, '-'),
         startsAt: input.startsAt,
         status: input.status,
-        publishedAt:
-          input.status === EventStatus.PUBLISHED ? new Date() : null,
+        publishedAt: input.status === EventStatus.PUBLISHED ? new Date() : null,
         createdBy: 'owner-sub',
       },
     });
@@ -77,11 +85,9 @@ describe('PublicEvents (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get('/public/events')
         .expect(200);
-      expect(res.body.items.map((e: { title: string }) => e.title)).toEqual([
-        'Sooner',
-        'Later',
-      ]);
-      expect(res.body.nextCursor).toBeNull();
+      const body = jsonBody<PublicList>(res);
+      expect(body.items.map((e) => e.title)).toEqual(['Sooner', 'Later']);
+      expect(body.nextCursor).toBeNull();
     });
 
     it('hides drafts and cancelled events', async () => {
@@ -107,8 +113,9 @@ describe('PublicEvents (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get('/public/events')
         .expect(200);
-      expect(res.body.items).toHaveLength(1);
-      expect(res.body.items[0].title).toBe('Visible');
+      const body = jsonBody<PublicList>(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].title).toBe('Visible');
     });
 
     it('hides past events', async () => {
@@ -128,7 +135,7 @@ describe('PublicEvents (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get('/public/events')
         .expect(200);
-      expect(res.body.items.map((e: { title: string }) => e.title)).toEqual([
+      expect(jsonBody<PublicList>(res).items.map((e) => e.title)).toEqual([
         'Future',
       ]);
     });
@@ -144,13 +151,14 @@ describe('PublicEvents (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get('/public/events')
         .expect(200);
-      expect(res.body.items[0].organization).toEqual({
+      const items = jsonBody<PublicList>(res).items;
+      expect(items[0].organization).toEqual({
         name: 'Acme Events',
         slug: 'acme-events',
       });
-      expect(res.body.items[0]).not.toHaveProperty('createdBy');
-      expect(res.body.items[0]).not.toHaveProperty('status');
-      expect(res.body.items[0]).not.toHaveProperty('organizationId');
+      expect(items[0]).not.toHaveProperty('createdBy');
+      expect(items[0]).not.toHaveProperty('status');
+      expect(items[0]).not.toHaveProperty('organizationId');
     });
 
     it('paginates by cursor with limit', async () => {
@@ -166,27 +174,22 @@ describe('PublicEvents (e2e)', () => {
       const page1 = await request(app.getHttpServer())
         .get('/public/events?limit=2')
         .expect(200);
-      expect(page1.body.items.map((e: { title: string }) => e.title)).toEqual([
-        'Event 1',
-        'Event 2',
-      ]);
-      expect(page1.body.nextCursor).toEqual(expect.any(String));
+      const p1 = jsonBody<PublicList>(page1);
+      expect(p1.items.map((e) => e.title)).toEqual(['Event 1', 'Event 2']);
+      expect(p1.nextCursor).toEqual(expect.any(String));
 
       const page2 = await request(app.getHttpServer())
-        .get(`/public/events?limit=2&cursor=${page1.body.nextCursor}`)
+        .get(`/public/events?limit=2&cursor=${p1.nextCursor}`)
         .expect(200);
-      expect(page2.body.items.map((e: { title: string }) => e.title)).toEqual([
-        'Event 3',
-        'Event 4',
-      ]);
+      const p2 = jsonBody<PublicList>(page2);
+      expect(p2.items.map((e) => e.title)).toEqual(['Event 3', 'Event 4']);
 
       const page3 = await request(app.getHttpServer())
-        .get(`/public/events?limit=2&cursor=${page2.body.nextCursor}`)
+        .get(`/public/events?limit=2&cursor=${p2.nextCursor}`)
         .expect(200);
-      expect(page3.body.items.map((e: { title: string }) => e.title)).toEqual([
-        'Event 5',
-      ]);
-      expect(page3.body.nextCursor).toBeNull();
+      const p3 = jsonBody<PublicList>(page3);
+      expect(p3.items.map((e) => e.title)).toEqual(['Event 5']);
+      expect(p3.nextCursor).toBeNull();
     });
 
     it('rejects malformed cursor with 400', async () => {
@@ -207,8 +210,9 @@ describe('PublicEvents (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/public/events/${id}`)
         .expect(200);
-      expect(res.body.title).toBe('Visible');
-      expect(res.body.organization.name).toBe('Acme Events');
+      const body = jsonBody<PublicEvent>(res);
+      expect(body.title).toBe('Visible');
+      expect(body.organization.name).toBe('Acme Events');
     });
 
     it('returns 404 for a draft event', async () => {

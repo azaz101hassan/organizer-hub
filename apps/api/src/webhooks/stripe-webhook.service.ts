@@ -98,7 +98,11 @@ export class StripeWebhookService {
       );
       return;
     }
-    if (clientRef !== undefined && clientRef !== null && clientRef !== metaUserId) {
+    if (
+      clientRef !== undefined &&
+      clientRef !== null &&
+      clientRef !== metaUserId
+    ) {
       this.logger.error(
         `checkout.session.completed ${eventId} session ${session.id} client_reference_id mismatch (ref=${clientRef} meta=${metaUserId}); refunding`,
       );

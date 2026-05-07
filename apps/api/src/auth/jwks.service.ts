@@ -10,7 +10,8 @@ export class JwksService {
   readonly keySet: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(config: ConfigService) {
-    this.issuer = config.get<string>('ACCOUNTS_ISSUER_URL') ?? 'http://localhost:3002';
+    this.issuer =
+      config.get<string>('ACCOUNTS_ISSUER_URL') ?? 'http://localhost:3002';
     this.audience = config.get<string>('API_AUDIENCE') ?? 'organizer-api';
     const jwksUrl = new URL(`${this.issuer}/oidc/jwks`);
     this.keySet = createRemoteJWKSet(jwksUrl);

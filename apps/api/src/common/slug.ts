@@ -22,9 +22,7 @@ export async function createWithUniqueSlug<T>(
 ): Promise<T> {
   for (let attempt = 0; attempt < SLUG_MAX_ATTEMPTS; attempt++) {
     const slug =
-      attempt === 0
-        ? base
-        : `${base}-${randomBytes(2).toString('hex')}`;
+      attempt === 0 ? base : `${base}-${randomBytes(2).toString('hex')}`;
     try {
       return await create(slug);
     } catch (err) {

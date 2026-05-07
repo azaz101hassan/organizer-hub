@@ -349,11 +349,7 @@ export class MembershipsService {
         verdicts[id] = 'BUY';
         continue;
       }
-      verdicts[id] = await this.evaluateCoverageVerdict(
-        userId,
-        tt,
-        membership,
-      );
+      verdicts[id] = await this.evaluateCoverageVerdict(userId, tt, membership);
     }
     return verdicts;
   }

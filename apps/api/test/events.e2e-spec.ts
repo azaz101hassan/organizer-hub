@@ -8,6 +8,7 @@ import {
   makeSubHolder,
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
+import { jsonBody } from './helpers/http';
 
 const currentSub = makeSubHolder('owner-sub');
 
@@ -133,7 +134,9 @@ describe('Events (e2e)', () => {
         .post(`/organizations/${orgId}/events`)
         .send({ title: 'Spring Gala', startsAt: '2026-06-02T18:00:00.000Z' })
         .expect(201);
-      expect(res.body.slug).toMatch(/^spring-gala-[0-9a-f]{4}$/);
+      expect(jsonBody<{ slug: string }>(res).slug).toMatch(
+        /^spring-gala-[0-9a-f]{4}$/,
+      );
     });
 
     it('allows same slug across different orgs', async () => {
@@ -147,7 +150,7 @@ describe('Events (e2e)', () => {
         .post(`/organizations/${otherOrgId}/events`)
         .send({ title: 'Spring Gala', startsAt: '2026-06-01T18:00:00.000Z' })
         .expect(201);
-      expect(res.body.slug).toBe('spring-gala');
+      expect(jsonBody<{ slug: string }>(res).slug).toBe('spring-gala');
     });
   });
 
@@ -166,10 +169,9 @@ describe('Events (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/organizations/${orgId}/events`)
         .expect(200);
-      expect(res.body.map((e: { title: string }) => e.title)).toEqual([
-        'Earlier',
-        'Later',
-      ]);
+      expect(
+        jsonBody<Array<{ title: string }>>(res).map((e) => e.title),
+      ).toEqual(['Earlier', 'Later']);
     });
 
     it('non-member of the org gets 404', async () => {
@@ -186,7 +188,7 @@ describe('Events (e2e)', () => {
         .post(`/organizations/${orgId}/events`)
         .send({ title: 'Test', startsAt: '2026-08-01T18:00:00.000Z' })
         .expect(201);
-      return res.body.id;
+      return jsonBody<{ id: string }>(res).id;
     }
 
     it('owner can edit title', async () => {
@@ -195,7 +197,7 @@ describe('Events (e2e)', () => {
         .patch(`/organizations/${orgId}/events/${id}`)
         .send({ title: 'Renamed' })
         .expect(200);
-      expect(res.body.title).toBe('Renamed');
+      expect(jsonBody<{ title: string }>(res).title).toBe('Renamed');
     });
 
     it('admin can edit', async () => {
@@ -222,8 +224,11 @@ describe('Events (e2e)', () => {
         .patch(`/organizations/${orgId}/events/${id}`)
         .send({ status: 'PUBLISHED' })
         .expect(200);
-      expect(res.body.status).toBe('PUBLISHED');
-      expect(res.body.publishedAt).not.toBeNull();
+      const body = jsonBody<{ status: string; publishedAt: string | null }>(
+        res,
+      );
+      expect(body.status).toBe('PUBLISHED');
+      expect(body.publishedAt).not.toBeNull();
     });
 
     it('PUBLISHED → CANCELLED allowed', async () => {
@@ -248,7 +253,7 @@ describe('Events (e2e)', () => {
         .patch(`/organizations/${orgId}/events/${id}`)
         .send({ status: 'PUBLISHED' })
         .expect(400);
-      expect(res.body.message).toMatch(/cancelled/i);
+      expect(jsonBody<{ message: string }>(res).message).toMatch(/cancelled/i);
     });
 
     it('PATCH on event from a different org returns 404', async () => {

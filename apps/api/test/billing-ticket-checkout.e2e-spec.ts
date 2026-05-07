@@ -16,6 +16,7 @@ import {
   type SubHolder,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { jsonBody } from './helpers/http';
 
 const USER = 'user-ticket-1';
 
@@ -104,7 +105,9 @@ describe('Billing ticket checkout (e2e)', () => {
       .send({ ticketTypeId })
       .expect(200);
 
-    expect(res.body.url).toMatch(/^https:\/\/checkout\.stripe\.test\//);
+    expect(jsonBody<{ url: string }>(res).url).toMatch(
+      /^https:\/\/checkout\.stripe\.test\//,
+    );
 
     const calls = fakeStripe.callsFor('checkout.sessions.create');
     expect(calls).toHaveLength(1);

@@ -7,6 +7,9 @@ import {
   makeSubHolder,
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
+import { jsonBody } from './helpers/http';
+
+type OrgView = { id: string; name: string; slug: string; role: string };
 
 const currentSub = makeSubHolder('user-a');
 
@@ -34,12 +37,13 @@ describe('Organizations (e2e)', () => {
         .send({ name: 'Acme Events' })
         .expect(201);
 
-      expect(res.body).toMatchObject({
+      const body = jsonBody<OrgView>(res);
+      expect(body).toMatchObject({
         name: 'Acme Events',
         slug: 'acme-events',
         role: 'OWNER',
       });
-      expect(res.body.id).toEqual(expect.any(String));
+      expect(body.id).toEqual(expect.any(String));
 
       const members = await prisma.organizationMember.findMany({
         where: { userId: 'user-a' },
@@ -73,7 +77,7 @@ describe('Organizations (e2e)', () => {
         .post('/organizations')
         .send({ name: 'Acme Events' })
         .expect(201);
-      expect(res.body.slug).toMatch(/^acme-events-[0-9a-f]{4}$/);
+      expect(jsonBody<OrgView>(res).slug).toMatch(/^acme-events-[0-9a-f]{4}$/);
     });
   });
 
@@ -98,12 +102,13 @@ describe('Organizations (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get('/organizations')
         .expect(200);
-      expect(res.body).toHaveLength(2);
-      expect(res.body.map((o: { name: string }) => o.name).sort()).toEqual([
+      const orgs = jsonBody<OrgView[]>(res);
+      expect(orgs).toHaveLength(2);
+      expect(orgs.map((o) => o.name).sort()).toEqual([
         'User A Org 1',
         'User A Org 2',
       ]);
-      for (const org of res.body) expect(org.role).toBe('OWNER');
+      for (const org of orgs) expect(org.role).toBe('OWNER');
     });
   });
 
@@ -114,11 +119,13 @@ describe('Organizations (e2e)', () => {
         .send({ name: 'Acme' })
         .expect(201);
 
+      const createdBody = jsonBody<OrgView>(created);
       const res = await request(app.getHttpServer())
-        .get(`/organizations/${created.body.id}`)
+        .get(`/organizations/${createdBody.id}`)
         .expect(200);
-      expect(res.body.id).toBe(created.body.id);
-      expect(res.body.role).toBe('OWNER');
+      const body = jsonBody<OrgView>(res);
+      expect(body.id).toBe(createdBody.id);
+      expect(body.role).toBe('OWNER');
     });
 
     it('returns 404 (not 403) for a non-member to avoid existence leak', async () => {
@@ -129,7 +136,7 @@ describe('Organizations (e2e)', () => {
 
       currentSub.value = 'user-b';
       await request(app.getHttpServer())
-        .get(`/organizations/${created.body.id}`)
+        .get(`/organizations/${jsonBody<OrgView>(created).id}`)
         .expect(404);
     });
 

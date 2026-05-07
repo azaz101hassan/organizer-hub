@@ -231,10 +231,9 @@ export class TicketTypesService {
       // Dashboard reflects the deletion. We don't `prices.delete` because
       // Stripe forbids deleting Prices with usage history — and we don't
       // know whether issued Tickets exist (the Ticket model lands in U7).
-      await this.stripeClient.stripe.products.update(
-        current.stripeProductId,
-        { active: false },
-      );
+      await this.stripeClient.stripe.products.update(current.stripeProductId, {
+        active: false,
+      });
     } catch (err) {
       this.logger.warn(
         `Failed to archive Stripe Product ${current.stripeProductId}: ${

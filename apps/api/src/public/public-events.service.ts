@@ -1,9 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventStatus, Prisma } from '@organizer-hub/db/api';
-import {
-  decodeTupleCursor,
-  encodeTupleCursor,
-} from '../common/cursor';
+import { decodeTupleCursor, encodeTupleCursor } from '../common/cursor';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface PublicEventView {
@@ -52,20 +49,14 @@ export class PublicEventsService {
     cursor?: string;
     limit?: number;
   }): Promise<PublicEventsPage> {
-    const limit = Math.min(
-      Math.max(1, opts.limit ?? DEFAULT_LIMIT),
-      MAX_LIMIT,
-    );
+    const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
     const now = new Date();
 
     let tupleFilter: Prisma.EventWhereInput = {};
     if (opts.cursor) {
       const c = decodeTupleCursor(opts.cursor);
       tupleFilter = {
-        OR: [
-          { startsAt: { gt: c.at } },
-          { startsAt: c.at, id: { gt: c.id } },
-        ],
+        OR: [{ startsAt: { gt: c.at } }, { startsAt: c.at, id: { gt: c.id } }],
       };
     }
 

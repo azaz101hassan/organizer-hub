@@ -30,7 +30,9 @@ export class JwtAuthGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<Request>();
     const header = req.headers.authorization;
     if (!header || !header.toLowerCase().startsWith('bearer ')) {
-      throw new UnauthorizedException('missing or malformed Authorization header');
+      throw new UnauthorizedException(
+        'missing or malformed Authorization header',
+      );
     }
     const token = header.slice(7).trim();
     if (!token) throw new UnauthorizedException('empty bearer token');
@@ -40,12 +42,15 @@ export class JwtAuthGuard implements CanActivate {
         issuer: this.jwks.issuer,
         audience: this.jwks.audience,
       });
-      if (!payload.sub) throw new UnauthorizedException('token missing sub claim');
+      if (!payload.sub)
+        throw new UnauthorizedException('token missing sub claim');
       req.user = {
         sub: payload.sub,
         email: typeof payload.email === 'string' ? payload.email : undefined,
         emailVerified:
-          typeof payload.email_verified === 'boolean' ? payload.email_verified : undefined,
+          typeof payload.email_verified === 'boolean'
+            ? payload.email_verified
+            : undefined,
         name: typeof payload.name === 'string' ? payload.name : undefined,
         claims: payload,
       };

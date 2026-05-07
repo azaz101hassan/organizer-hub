@@ -11,10 +11,7 @@ import {
 import { StripeClient } from './../src/billing/stripe.client';
 import { StripeWebhookVerifier } from './../src/billing/stripe-webhook.verifier';
 import { PrismaService } from './../src/prisma/prisma.service';
-import {
-  bootTestApp,
-  DenyAllGuard,
-} from './helpers/boot-test-app';
+import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 import {
   FakeStripeClient,
   FakeStripeWebhookVerifier,
@@ -279,7 +276,12 @@ describe('Stripe webhooks (e2e)', () => {
     fakeVerifier.queueEvent(
       makeStripeEvent(
         'invoice.payment_failed',
-        { id: 'in_test', customer: CUSTOMER, subscription: SUB_ID, attempt_count: 1 },
+        {
+          id: 'in_test',
+          customer: CUSTOMER,
+          subscription: SUB_ID,
+          attempt_count: 1,
+        },
         'evt_inv_fail',
       ),
     );
@@ -374,9 +376,7 @@ describe('Stripe webhooks (e2e)', () => {
           mode: 'payment',
           customer: CUSTOMER,
           client_reference_id:
-            overrides.clientRef === null
-              ? null
-              : (overrides.clientRef ?? USER),
+            overrides.clientRef === null ? null : (overrides.clientRef ?? USER),
           payment_intent: overrides.paymentIntent ?? `pi_${sessionId}`,
           metadata: {
             userId: overrides.userIdMeta ?? USER,
