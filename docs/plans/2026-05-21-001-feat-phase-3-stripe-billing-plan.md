@@ -1,7 +1,7 @@
 ---
 title: "feat: Phase 3 — Stripe billing (tiered tickets + memberships)"
 type: feat
-status: active
+status: completed
 date: 2026-05-21
 origin: docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md
 ---
