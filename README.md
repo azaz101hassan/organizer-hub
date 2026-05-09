@@ -131,11 +131,6 @@ model). Drive `docs/phase-3-browser-smoke.md` for an end-to-end check.
   auto-refund for tampered checkout metadata.
 - Capacity, sold-out states, per-tier inventory, waitlists.
 - Organizer payouts / revenue-share (Stripe Connect).
-- Refresh-token rotation on the web side. Today a 401 from the api kicks
-  the user back to `/auth/login`; the refresh token is stored but unused.
 - Member invitations and removal from the dashboard.
 - Image uploads, search, email notifications, custom receipt emails
   beyond Stripe defaults, RP-initiated logout parity.
-- `docs/solutions/billing/` capture — the `syncStripeData` pattern,
-  rename-before-reuse migration ordering, and the NestJS Stripe testing
-  seam are worth writing up as institutional learnings.

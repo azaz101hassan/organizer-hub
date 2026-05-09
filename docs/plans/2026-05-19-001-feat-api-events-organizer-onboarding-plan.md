@@ -1,7 +1,7 @@
 ---
 title: "feat: Phase 2 — API events + organizer onboarding"
 type: feat
-status: active
+status: completed
 created: 2026-05-19
 depth: standard
 ---
