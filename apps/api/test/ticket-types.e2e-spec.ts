@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { OrganizationRole } from '@organizer-hub/db/api';
+import { OrganizationRole, TicketSource } from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
 import { PrismaService } from './../src/prisma/prisma.service';
 import {
@@ -17,6 +17,8 @@ type TicketTypeView = {
   name: string;
   priceCents: number;
   minTierLevel: number;
+  cap: number | null;
+  issuedCount: number;
   stripeProductId: string;
   stripePriceId: string;
 };
@@ -44,6 +46,9 @@ describe('TicketTypes (e2e)', () => {
   });
 
   beforeEach(async () => {
+    // Tickets reference ticket_types with ON DELETE RESTRICT, so they must be
+    // cleared first or the ticketType deleteMany throws P2003.
+    await prisma.ticket.deleteMany({});
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     fakeStripe.reset();
@@ -240,6 +245,99 @@ describe('TicketTypes (e2e)', () => {
 
       const productUpdates = fakeStripe.callsFor('products.update');
       expect(productUpdates.at(-1)?.args[1]).toMatchObject({ active: false });
+    });
+  });
+
+  describe('Capacity (cap) — Phase 4 U1 (R1, R17)', () => {
+    async function createType(
+      body: Record<string, unknown>,
+    ): Promise<TicketTypeView> {
+      const res = await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events/${eventId}/ticket-types`)
+        .send(body)
+        .expect(201);
+      return jsonBody<TicketTypeView>(res);
+    }
+
+    it('creates a ticket type with a cap and round-trips it (issuedCount 0)', async () => {
+      const created = await createType({
+        name: 'GA',
+        priceCents: 5000,
+        cap: 10,
+      });
+      expect(created.cap).toBe(10);
+      expect(created.issuedCount).toBe(0);
+
+      const res = await request(app.getHttpServer())
+        .get(`/organizations/${orgId}/events/${eventId}/ticket-types`)
+        .expect(200);
+      const list = jsonBody<TicketTypeView[]>(res);
+      expect(list[0].cap).toBe(10);
+      expect(list[0].issuedCount).toBe(0);
+    });
+
+    it('defaults cap to null when omitted', async () => {
+      const created = await createType({ name: 'GA', priceCents: 5000 });
+      expect(created.cap).toBeNull();
+    });
+
+    it('sets cap null→5 then clears it 5→null', async () => {
+      const created = await createType({ name: 'GA', priceCents: 5000 });
+      expect(created.cap).toBeNull();
+
+      const setRes = await request(app.getHttpServer())
+        .patch(
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.id}`,
+        )
+        .send({ cap: 5 })
+        .expect(200);
+      expect(jsonBody<TicketTypeView>(setRes).cap).toBe(5);
+
+      const clearRes = await request(app.getHttpServer())
+        .patch(
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.id}`,
+        )
+        .send({ cap: null })
+        .expect(200);
+      expect(jsonBody<TicketTypeView>(clearRes).cap).toBeNull();
+    });
+
+    it('rejects cap=0 and cap=-1 with 400', async () => {
+      await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events/${eventId}/ticket-types`)
+        .send({ name: 'GA', priceCents: 5000, cap: 0 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events/${eventId}/ticket-types`)
+        .send({ name: 'GA', priceCents: 5000, cap: -1 })
+        .expect(400);
+    });
+
+    it('permits setting cap below issuedCount; view exposes issuedCount and no tickets are revoked (R17)', async () => {
+      const created = await createType({ name: 'GA', priceCents: 5000 });
+      await prisma.ticket.createMany({
+        data: Array.from({ length: 5 }, () => ({
+          userId: 'buyer-sub',
+          eventId,
+          ticketTypeId: created.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        })),
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(
+          `/organizations/${orgId}/events/${eventId}/ticket-types/${created.id}`,
+        )
+        .send({ cap: 3 })
+        .expect(200);
+      const body = jsonBody<TicketTypeView>(res);
+      expect(body.cap).toBe(3);
+      expect(body.issuedCount).toBe(5);
+
+      const remaining = await prisma.ticket.count({
+        where: { ticketTypeId: created.id },
+      });
+      expect(remaining).toBe(5);
     });
   });
 

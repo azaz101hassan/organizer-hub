@@ -132,6 +132,11 @@ model TicketType {
   name            String
   priceCents      Int      @map("price_cents")
   minTierLevel    Int      @default(0) @map("min_tier_level")
+  // Optional soft cap on issued tickets. null = no cap (Phase 3 instant-issue
+  // behavior). When set, U5 routes at-cap purchases/claims into the waitlist.
+  // A DB CHECK (cap IS NULL OR cap >= 1) backs the DTO @Min(1) — Prisma 6.x
+  // cannot express CHECK constraints, so it lives in the migration.
+  cap             Int?
   stripeProductId String   @unique @map("stripe_product_id")
   stripePriceId   String   @unique @map("stripe_price_id")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -168,6 +173,7 @@ model Ticket {
 
   @@index([userId])
   @@index([eventId])
+  @@index([ticketTypeId])
   @@index([userId, eventId, ticketTypeId, source])
   @@map("tickets")
 }

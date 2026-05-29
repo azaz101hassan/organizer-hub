@@ -87,6 +87,8 @@ export interface TicketTypeView {
   name: string;
   priceCents: number;
   minTierLevel: number;
+  cap: number | null;
+  issuedCount: number;
   stripeProductId: string;
   stripePriceId: string;
   createdAt: string;

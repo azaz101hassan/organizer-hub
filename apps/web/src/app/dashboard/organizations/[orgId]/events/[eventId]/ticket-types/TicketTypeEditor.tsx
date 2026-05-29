@@ -33,7 +33,12 @@ export function TicketTypeAddForm({
 }) {
   const action = createTicketType.bind(null, orgId, eventId);
   const [state, formAction, pending] = useActionState(action, INITIAL);
-  const values = state.values ?? { name: "", price: "", minTierLevel: "0" };
+  const values = state.values ?? {
+    name: "",
+    price: "",
+    minTierLevel: "0",
+    cap: "",
+  };
 
   return (
     <form
@@ -69,6 +74,15 @@ export function TicketTypeAddForm({
           defaultValue={values.minTierLevel ?? "0"}
           disabled={disabled || pending}
           error={state.fieldErrors?.minTierLevel}
+        />
+      </div>
+
+      <div className="sm:max-w-xs">
+        <CapField
+          id="add-cap"
+          defaultValue={values.cap ?? ""}
+          disabled={disabled || pending}
+          error={state.fieldErrors?.cap}
         />
       </div>
 
@@ -136,8 +150,15 @@ export function TicketTypeRow({
         </p>
         <p className="mt-0.5 text-xs text-zinc-500">
           ${centsToDollars(ticketType.priceCents)} ·{" "}
-          {tierLabel(ticketType.minTierLevel)}
+          {tierLabel(ticketType.minTierLevel)} · {capLabel(ticketType)}
         </p>
+        {ticketType.cap !== null &&
+          ticketType.issuedCount > ticketType.cap && (
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              {ticketType.issuedCount} tickets already issued exceed this cap;
+              existing tickets are not revoked.
+            </p>
+          )}
         {deleteError && (
           <p className="mt-1 text-xs text-red-600 dark:text-red-400">
             {deleteError}
@@ -214,6 +235,7 @@ function TicketTypeEditForm({
     name: ticketType.name,
     price: centsToDollars(ticketType.priceCents),
     minTierLevel: String(ticketType.minTierLevel),
+    cap: ticketType.cap === null ? "" : String(ticketType.cap),
   };
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -264,6 +286,18 @@ function TicketTypeEditForm({
           />
         </div>
 
+        <div className="sm:max-w-xs">
+          <CapField
+            id={`edit-cap-${ticketType.id}`}
+            defaultValue={
+              values.cap ??
+              (ticketType.cap === null ? "" : String(ticketType.cap))
+            }
+            disabled={disabled || pending}
+            error={state.fieldErrors?.cap}
+          />
+        </div>
+
         {state.error && (
           <p className="text-sm text-red-600 dark:text-red-400">
             {state.error}
@@ -292,6 +326,11 @@ function TicketTypeEditForm({
   );
 }
 
+function capLabel(ticketType: TicketTypeView): string {
+  if (ticketType.cap === null) return "No cap";
+  return `Cap ${ticketType.cap} · ${ticketType.issuedCount} issued`;
+}
+
 function tierLabel(minTierLevel: number): string {
   switch (minTierLevel) {
     case 0:
@@ -316,6 +355,7 @@ function Field({
   error,
   placeholder,
   inputMode,
+  hint,
 }: {
   id: string;
   name: string;
@@ -324,7 +364,8 @@ function Field({
   disabled?: boolean;
   error?: string;
   placeholder?: string;
-  inputMode?: "decimal" | "text";
+  inputMode?: "decimal" | "numeric" | "text";
+  hint?: string;
 }) {
   return (
     <div>
@@ -344,10 +385,40 @@ function Field({
         placeholder={placeholder}
         className="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
       />
-      {error && (
+      {error ? (
         <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>
-      )}
+      ) : hint ? (
+        <p className="mt-1 text-xs text-zinc-500">{hint}</p>
+      ) : null}
     </div>
+  );
+}
+
+// Capacity input: blank means "no cap". At cap, U5 routes paid purchases and
+// free claims into the admin-moderated waitlist instead of issuing instantly.
+function CapField({
+  id,
+  defaultValue,
+  disabled,
+  error,
+}: {
+  id: string;
+  defaultValue: string;
+  disabled?: boolean;
+  error?: string;
+}) {
+  return (
+    <Field
+      id={id}
+      name="cap"
+      label="Capacity"
+      defaultValue={defaultValue}
+      disabled={disabled}
+      error={error}
+      placeholder="No cap"
+      inputMode="numeric"
+      hint="Leave blank for no cap. At capacity, buyers and members join a waitlist you approve."
+    />
   );
 }
 
