@@ -10,6 +10,7 @@ import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { TicketRequestsModule } from './ticket-requests/ticket-requests.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -30,6 +31,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     OrganizationsModule,
     EventsModule,
     PublicModule,
+    RealtimeModule,
     TicketsModule,
     TicketRequestsModule,
     WebhooksModule,
