@@ -21,7 +21,12 @@ import {
 import { FakeStripeClient } from './helpers/fake-stripe';
 import { jsonBody } from './helpers/http';
 
-type CoverageMap = Record<string, 'CLAIMABLE' | 'BUY' | 'OWNED'>;
+interface CoverageResult {
+  verdict: 'OWNED' | 'AT_CAP' | 'CLAIMABLE' | 'BUY';
+  requestIntent?: 'PAID' | 'MEMBERSHIP_CLAIM';
+  openRequestId?: string | null;
+}
+type CoverageMap = Record<string, CoverageResult>;
 
 const USER = 'user-claim-1';
 const CUSTOMER = 'cus_claim_1';
@@ -42,6 +47,7 @@ async function seedEventWithTicketType(
     ticketName: string;
     priceCents: number;
     minTierLevel: number;
+    cap?: number | null;
   },
 ): Promise<TicketTypeFixture> {
   const ev = await prisma.event.create({
@@ -65,6 +71,7 @@ async function seedEventWithTicketType(
       name: args.ticketName,
       priceCents: args.priceCents,
       minTierLevel: args.minTierLevel,
+      cap: args.cap ?? null,
       stripeProductId: `prod_${args.eventSlug}_${args.ticketName}`,
       stripePriceId: `price_${args.eventSlug}_${args.ticketName}`,
     },
@@ -511,10 +518,10 @@ describe('Ticket claim (e2e)', () => {
         .expect(200);
 
       const body = jsonBody<CoverageMap>(res);
-      expect(body[claimable.id]).toBe('CLAIMABLE');
-      expect(body[buy.id]).toBe('BUY');
-      expect(body[owned.id]).toBe('OWNED');
-      expect(body['unknown']).toBe('BUY');
+      expect(body[claimable.id].verdict).toBe('CLAIMABLE');
+      expect(body[buy.id].verdict).toBe('BUY');
+      expect(body[owned.id].verdict).toBe('OWNED');
+      expect(body['unknown'].verdict).toBe('BUY');
     });
 
     it('returns an empty object when no ticketTypeIds are passed', async () => {
@@ -542,7 +549,132 @@ describe('Ticket claim (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
         .expect(200);
-      expect(jsonBody<CoverageMap>(res)[tt.id]).toBe('BUY');
+      expect(jsonBody<CoverageMap>(res)[tt.id].verdict).toBe('BUY');
+    });
+
+    it('resolves AT_CAP (PAID intent) for a full paid tier with no open request (R20)', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'paid-full',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      // Someone else holds the only seat → the tier is at cap for USER.
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_paid_full',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.requestIntent).toBe('PAID');
+      expect(result.openRequestId).toBeNull();
+    });
+
+    it('resolves AT_CAP (MEMBERSHIP_CLAIM intent) for a full member tier', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.GOLD,
+        tierLevel: 3,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'member-full',
+        ticketName: 'Gold',
+        priceCents: 0,
+        minTierLevel: 3,
+        cap: 1,
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.requestIntent).toBe('MEMBERSHIP_CLAIM');
+    });
+
+    it('OWNED still wins over AT_CAP when the caller already holds a ticket', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'owned-full',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      // The caller's own ticket is the one that fills the cap.
+      await prisma.ticket.create({
+        data: {
+          userId: USER,
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_owned_full',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      expect(jsonBody<CoverageMap>(res)[tt.id].verdict).toBe('OWNED');
+    });
+
+    it('AT_CAP carries openRequestId when the caller already has an open request', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'paid-full-pending',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_paid_full_pending',
+        },
+      });
+      const open = await prisma.ticketRequest.create({
+        data: {
+          userId: USER,
+          ticketTypeId: tt.id,
+          eventId: tt.eventId,
+          intent: TicketRequestIntent.PAID,
+          status: TicketRequestStatus.PENDING,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.openRequestId).toBe(open.id);
     });
   });
 });

@@ -113,7 +113,18 @@ export interface TicketView {
   issuedAt: string;
 }
 
-export type CoverageVerdict = "OWNED" | "CLAIMABLE" | "BUY";
+export type CoverageVerdict = "OWNED" | "AT_CAP" | "CLAIMABLE" | "BUY";
+
+export type TicketRequestIntent = "PAID" | "MEMBERSHIP_CLAIM";
+
+// Per-TicketType coverage result from GET /memberships/me/coverage. For AT_CAP
+// it carries the intake intent (which endpoint "Request a spot" posts to) and
+// the caller's existing open request id, if any (→ "Request pending" deep-link).
+export interface CoverageResult {
+  verdict: CoverageVerdict;
+  requestIntent?: TicketRequestIntent;
+  openRequestId?: string | null;
+}
 
 export type TicketRequestStatus =
   | "PENDING"

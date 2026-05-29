@@ -4,9 +4,12 @@ import {
   MembershipTier,
   Prisma,
   SubscriptionStatus,
+  TicketRequestIntent,
+  TicketRequestStatus,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from '../billing/stripe.client';
+import { atCap } from '../tickets/capacity';
 import type { Stripe } from '../billing/stripe-types';
 
 // Subscription statuses that count as "the user has a live membership for
@@ -64,9 +67,28 @@ export interface MembershipPlanView {
 // Coverage verdict per TicketType, surfaced to the web for primary-CTA
 // rendering on the event detail page.
 //   OWNED     — user already holds a Ticket for this type (PAID or claim).
+//   AT_CAP    — the tier is full; the instant Buy/Claim path is closed and the
+//               only action is to request a spot on the waitlist (R20). Takes
+//               precedence over CLAIMABLE/BUY, but never over OWNED.
 //   CLAIMABLE — user has membership coverage and can issue a free Ticket.
 //   BUY       — neither of the above; the only path is Stripe Checkout.
-export type CoverageVerdict = 'OWNED' | 'CLAIMABLE' | 'BUY';
+export type CoverageVerdict = 'OWNED' | 'AT_CAP' | 'CLAIMABLE' | 'BUY';
+
+// Per-TicketType coverage result. For AT_CAP it carries two extra fields the
+// "Request a spot" affordance needs without a second round-trip (Design State
+// Conventions, U10):
+//   requestIntent — which intake endpoint the form must POST to. Derived from
+//     the would-be-under-cap verdict: a claim-eligible member queues a free
+//     MEMBERSHIP_CLAIM (→ /tickets/claim); everyone else queues a PAID request
+//     (→ /billing/checkout/ticket). The web can't derive this (it doesn't know
+//     the caller's tier), so the server must.
+//   openRequestId — the caller's existing PENDING/APPROVED request for this
+//     tier, or null. Non-null → render "Request pending" deep-linking to it.
+export interface CoverageResult {
+  verdict: CoverageVerdict;
+  requestIntent?: TicketRequestIntent;
+  openRequestId?: string | null;
+}
 
 // Map a Stripe Price `lookup_key` (the canonical id we configure in the
 // Stripe Dashboard, e.g. `membership_gold_monthly`) to a local tier/level.
@@ -319,15 +341,17 @@ export class MembershipsService {
     return verdict === 'CLAIMABLE';
   }
 
-  // Bulk coverage verdict for the event detail page. Fetches TicketTypes +
-  // existing Tickets + the user's membership in three queries (independent
-  // of how many ticketTypeIds were requested) and resolves a verdict for
-  // each. Missing or unrelated ticketTypeIds resolve to 'BUY' so the UI
-  // degrades gracefully instead of erroring.
+  // Bulk coverage result for the event detail page. Resolves the base verdict
+  // for each tier, then layers the at-cap affordance: OWNED always wins, but
+  // otherwise a full tier resolves to AT_CAP (carrying the intake intent + any
+  // existing open request) so the page renders "Request a spot" / "Request
+  // pending". Missing or unrelated ticketTypeIds resolve to 'BUY' so the UI
+  // degrades gracefully instead of erroring. Issued counts and open requests
+  // are batched, independent of how many ticketTypeIds were requested.
   async getCoverageVerdicts(
     userId: string,
     ticketTypeIds: string[],
-  ): Promise<Record<string, CoverageVerdict>> {
+  ): Promise<Record<string, CoverageResult>> {
     if (ticketTypeIds.length === 0) return {};
 
     const ticketTypes = await this.prisma.ticketType.findMany({
@@ -342,16 +366,72 @@ export class MembershipsService {
       select: { tierLevel: true, status: true },
     });
 
-    const verdicts: Record<string, CoverageVerdict> = {};
+    // Issued counts only for capped tiers — atCap short-circuits an uncapped
+    // tier before any COUNT, so an uncapped tier never reaches this map.
+    const cappedIds = ticketTypes
+      .filter((t) => t.cap !== null)
+      .map((t) => t.id);
+    const issuedCounts = await this.issuedCountsFor(cappedIds);
+
+    // The caller's open requests across the requested tiers, in one query, so
+    // the AT_CAP "Request pending" deep-link needs no follow-up call.
+    const openByTier = await this.openRequestIdsFor(userId, ticketTypeIds);
+
+    const results: Record<string, CoverageResult> = {};
     for (const id of ticketTypeIds) {
       const tt = ticketTypes.find((t) => t.id === id);
       if (!tt) {
-        verdicts[id] = 'BUY';
+        results[id] = { verdict: 'BUY' };
         continue;
       }
-      verdicts[id] = await this.evaluateCoverageVerdict(userId, tt, membership);
+      const base = await this.evaluateCoverageVerdict(userId, tt, membership);
+      if (base === 'OWNED') {
+        results[id] = { verdict: 'OWNED' };
+        continue;
+      }
+      if (atCap(tt, issuedCounts.get(id) ?? 0)) {
+        results[id] = {
+          verdict: 'AT_CAP',
+          requestIntent:
+            base === 'CLAIMABLE'
+              ? TicketRequestIntent.MEMBERSHIP_CLAIM
+              : TicketRequestIntent.PAID,
+          openRequestId: openByTier.get(id) ?? null,
+        };
+        continue;
+      }
+      results[id] = { verdict: base };
     }
-    return verdicts;
+    return results;
+  }
+
+  private async issuedCountsFor(
+    ticketTypeIds: string[],
+  ): Promise<Map<string, number>> {
+    if (ticketTypeIds.length === 0) return new Map();
+    const groups = await this.prisma.ticket.groupBy({
+      by: ['ticketTypeId'],
+      where: { ticketTypeId: { in: ticketTypeIds } },
+      _count: { _all: true },
+    });
+    return new Map(groups.map((g) => [g.ticketTypeId, g._count._all]));
+  }
+
+  private async openRequestIdsFor(
+    userId: string,
+    ticketTypeIds: string[],
+  ): Promise<Map<string, string>> {
+    const open = await this.prisma.ticketRequest.findMany({
+      where: {
+        userId,
+        ticketTypeId: { in: ticketTypeIds },
+        status: {
+          in: [TicketRequestStatus.PENDING, TicketRequestStatus.APPROVED],
+        },
+      },
+      select: { id: true, ticketTypeId: true },
+    });
+    return new Map(open.map((r) => [r.ticketTypeId, r.id]));
   }
 
   // Core verdict rule. Order matters: OWNED beats CLAIMABLE beats BUY.
