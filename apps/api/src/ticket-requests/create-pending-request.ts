@@ -21,6 +21,10 @@ export interface CreatePendingRequestDeps {
 
 export interface CreatePendingRequestInput {
   userId: string;
+  // Snapshotted from the JWT at intake so the later admin/scheduler email
+  // flows can reach the requester (the API context can't look them up).
+  userEmail?: string;
+  userName?: string;
   ticketTypeId: string;
   eventId: string;
   // Resolved by the caller (event.organizationId) so the SSE emit can target
@@ -60,6 +64,8 @@ export async function createPendingRequest(
     const row = await deps.prisma.ticketRequest.create({
       data: {
         userId: input.userId,
+        userEmail: input.userEmail ?? null,
+        userName: input.userName ?? null,
         ticketTypeId: input.ticketTypeId,
         eventId: input.eventId,
         intent: input.intent,

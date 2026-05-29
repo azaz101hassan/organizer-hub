@@ -111,6 +111,8 @@ export class BillingController {
       { prisma: this.prisma, stream: this.stream },
       {
         userId: user.sub,
+        userEmail: user.email,
+        userName: user.name,
         ticketTypeId: dto.ticketTypeId,
         eventId: evaluation.ticketType.eventId,
         orgId: evaluation.ticketType.organizationId,

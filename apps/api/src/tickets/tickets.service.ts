@@ -88,7 +88,11 @@ export class TicketsService {
   // Serializable isolation so a concurrent claim or a members_excluded
   // flip mid-claim doesn't TOCTOU. P2002 catches the rare same-request-twice
   // race that slips past the in-tx findFirst.
-  async claimFree(userId: string, ticketTypeId: string): Promise<ClaimResult> {
+  async claimFree(
+    userId: string,
+    ticketTypeId: string,
+    contact?: { email?: string; name?: string },
+  ): Promise<ClaimResult> {
     const ticketType = await this.prisma.ticketType.findUnique({
       where: { id: ticketTypeId },
       include: {
@@ -160,6 +164,8 @@ export class TicketsService {
         { prisma: this.prisma, stream: this.stream },
         {
           userId,
+          userEmail: contact?.email,
+          userName: contact?.name,
           ticketTypeId,
           eventId: ticketType.event.id,
           orgId: ticketType.event.organizationId,

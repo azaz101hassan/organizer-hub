@@ -230,6 +230,11 @@ model Ticket {
 model TicketRequest {
   id                      String              @id @default(cuid())
   userId                  String              @map("user_id") // sub from accounts; no FK across contexts
+  // Requester contact, snapshotted from the JWT at intake. The API bounded
+  // context has no User table, so the admin/scheduler email flows (R16) cannot
+  // look the requester up later — the address must travel with the request.
+  userEmail               String?             @map("user_email")
+  userName                String?             @map("user_name")
   ticketTypeId            String              @map("ticket_type_id")
   eventId                 String              @map("event_id")
   intent                  TicketRequestIntent

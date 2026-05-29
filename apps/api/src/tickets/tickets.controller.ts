@@ -26,6 +26,9 @@ export class TicketsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ClaimTicketDto,
   ): Promise<ClaimResult> {
-    return this.tickets.claimFree(user.sub, dto.ticketTypeId);
+    return this.tickets.claimFree(user.sub, dto.ticketTypeId, {
+      email: user.email,
+      name: user.name,
+    });
   }
 }
