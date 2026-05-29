@@ -3,22 +3,10 @@ import {
   Prisma,
   TicketRequest,
   TicketRequestDecision,
-  TicketRequestIntent,
   TicketRequestStatus,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
-
-export interface TicketRequestView {
-  id: string;
-  userId: string;
-  ticketTypeId: string;
-  eventId: string;
-  intent: TicketRequestIntent;
-  status: TicketRequestStatus;
-  stripeCheckoutSessionId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { TicketRequestView, toTicketRequestView } from './ticket-request-view';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -89,16 +77,6 @@ export class TicketRequestTransitions {
   }
 
   toView(r: TicketRequest): TicketRequestView {
-    return {
-      id: r.id,
-      userId: r.userId,
-      ticketTypeId: r.ticketTypeId,
-      eventId: r.eventId,
-      intent: r.intent,
-      status: r.status,
-      stripeCheckoutSessionId: r.stripeCheckoutSessionId,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    };
+    return toTicketRequestView(r);
   }
 }

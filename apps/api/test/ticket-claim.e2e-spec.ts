@@ -6,6 +6,8 @@ import {
   MembershipTier,
   OrganizationRole,
   SubscriptionStatus,
+  TicketRequestIntent,
+  TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
@@ -121,7 +123,9 @@ describe('Ticket claim (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.ticketRequestAudit.deleteMany({});
     await prisma.ticket.deleteMany({});
+    await prisma.ticketRequest.deleteMany({});
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     await prisma.membership.deleteMany({});
@@ -165,12 +169,15 @@ describe('Ticket claim (e2e)', () => {
         .expect(201);
 
       expect(res.body).toMatchObject({
-        userId: USER,
-        eventId: tt.eventId,
-        ticketTypeId: tt.id,
-        source: TicketSource.MEMBERSHIP_CLAIM,
-        stripeCheckoutSessionId: null,
-        stripePaymentIntentId: null,
+        kind: 'ticket',
+        ticket: {
+          userId: USER,
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+          stripeCheckoutSessionId: null,
+          stripePaymentIntentId: null,
+        },
       });
     });
 
@@ -360,6 +367,100 @@ describe('Ticket claim (e2e)', () => {
         .post('/tickets/claim')
         .send({})
         .expect(400);
+    });
+
+    it('at cap → MEMBERSHIP_CLAIM request instead of an instant Ticket (R3, AE2)', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.GOLD,
+        tierLevel: 3,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'capped-claim',
+        ticketName: 'VIP',
+        priceCents: 0,
+        minTierLevel: 3,
+      });
+      // Fill to cap with another member's claim so USER's own duplicate-claim
+      // gate still passes and only the cap blocks the instant issue.
+      await prisma.ticketType.update({
+        where: { id: tt.id },
+        data: { cap: 1 },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-member',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/tickets/claim')
+        .send({ ticketTypeId: tt.id })
+        .expect(201);
+
+      const body = jsonBody<{
+        kind: string;
+        requestId: string;
+        status: string;
+      }>(res);
+      expect(body.kind).toBe('request');
+      expect(body.status).toBe(TicketRequestStatus.PENDING);
+
+      const row = await prisma.ticketRequest.findUnique({
+        where: { id: body.requestId },
+      });
+      expect(row).toMatchObject({
+        userId: USER,
+        ticketTypeId: tt.id,
+        intent: TicketRequestIntent.MEMBERSHIP_CLAIM,
+        status: TicketRequestStatus.PENDING,
+      });
+      // No instant Ticket for USER.
+      const userTickets = await prisma.ticket.count({
+        where: { userId: USER, ticketTypeId: tt.id },
+      });
+      expect(userTickets).toBe(0);
+    });
+
+    it('ineligible (below-tier) at cap → 409 and NO request created (R5, AE2)', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.SILVER,
+        tierLevel: 2,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'capped-ineligible',
+        ticketName: 'VIP',
+        priceCents: 0,
+        minTierLevel: 3,
+      });
+      await prisma.ticketType.update({
+        where: { id: tt.id },
+        data: { cap: 1 },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-member',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      await request(app.getHttpServer())
+        .post('/tickets/claim')
+        .send({ ticketTypeId: tt.id })
+        .expect(409);
+
+      const requests = await prisma.ticketRequest.count({
+        where: { userId: USER, ticketTypeId: tt.id },
+      });
+      expect(requests).toBe(0);
     });
   });
 

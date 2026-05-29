@@ -1,13 +1,18 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { firstValueFrom } from 'rxjs';
+import { filter, take } from 'rxjs/operators';
 import {
   EventStatus,
   OrganizationRole,
+  TicketRequestIntent,
+  TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { WaitlistStream } from './../src/realtime/waitlist-stream';
 import {
   bootTestApp,
   DenyAllGuard,
@@ -40,7 +45,9 @@ describe('Billing ticket checkout (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.ticketRequestAudit.deleteMany({});
     await prisma.ticket.deleteMany({});
+    await prisma.ticketRequest.deleteMany({});
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     await prisma.billingCustomer.deleteMany({});
@@ -99,15 +106,15 @@ describe('Billing ticket checkout (e2e)', () => {
     await app.close();
   });
 
-  it('creates a payment-mode Checkout Session with metadata', async () => {
+  it('creates a payment-mode Checkout Session with metadata (under cap → kind:checkout)', async () => {
     const res = await request(app.getHttpServer())
       .post('/billing/checkout/ticket')
       .send({ ticketTypeId })
       .expect(200);
 
-    expect(jsonBody<{ url: string }>(res).url).toMatch(
-      /^https:\/\/checkout\.stripe\.test\//,
-    );
+    const body = jsonBody<{ kind: string; url: string }>(res);
+    expect(body.kind).toBe('checkout');
+    expect(body.url).toMatch(/^https:\/\/checkout\.stripe\.test\//);
 
     const calls = fakeStripe.callsFor('checkout.sessions.create');
     expect(calls).toHaveLength(1);
@@ -162,6 +169,96 @@ describe('Billing ticket checkout (e2e)', () => {
       .post('/billing/checkout/ticket')
       .send({})
       .expect(400);
+  });
+
+  describe('at cap → waitlist request (R3, AE1)', () => {
+    // Fill the tier to capacity with another buyer's PAID ticket so USER's
+    // own existing-PAID gate still passes and only the cap is the blocker.
+    async function fillToCap(): Promise<void> {
+      await prisma.ticketType.update({
+        where: { id: ticketTypeId },
+        data: { cap: 1 },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-buyer',
+          eventId,
+          ticketTypeId,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_other',
+        },
+      });
+    }
+
+    it('at cap → kind:request, a PAID/PENDING row, and no Stripe session', async () => {
+      await fillToCap();
+
+      const res = await request(app.getHttpServer())
+        .post('/billing/checkout/ticket')
+        .send({ ticketTypeId })
+        .expect(200);
+
+      const body = jsonBody<{
+        kind: string;
+        requestId: string;
+        status: string;
+      }>(res);
+      expect(body.kind).toBe('request');
+      expect(body.status).toBe(TicketRequestStatus.PENDING);
+
+      const row = await prisma.ticketRequest.findUnique({
+        where: { id: body.requestId },
+      });
+      expect(row).toMatchObject({
+        userId: USER,
+        ticketTypeId,
+        eventId,
+        intent: TicketRequestIntent.PAID,
+        status: TicketRequestStatus.PENDING,
+      });
+      expect(fakeStripe.callsFor('checkout.sessions.create')).toHaveLength(0);
+    });
+
+    it('a second at-cap request for the same user/tier returns the same requestId (AE17)', async () => {
+      await fillToCap();
+
+      const first = await request(app.getHttpServer())
+        .post('/billing/checkout/ticket')
+        .send({ ticketTypeId })
+        .expect(200);
+      const second = await request(app.getHttpServer())
+        .post('/billing/checkout/ticket')
+        .send({ ticketTypeId })
+        .expect(200);
+
+      const firstId = jsonBody<{ requestId: string }>(first).requestId;
+      const secondId = jsonBody<{ requestId: string }>(second).requestId;
+      expect(secondId).toBe(firstId);
+
+      const count = await prisma.ticketRequest.count({
+        where: { userId: USER, ticketTypeId },
+      });
+      expect(count).toBe(1);
+    });
+
+    it('emits request.created on the org SSE stream after the PENDING insert', async () => {
+      await fillToCap();
+      const hub = app.get(WaitlistStream);
+      const received = firstValueFrom(
+        hub.stream(orgId).pipe(
+          filter((e) => e.type === 'request.created'),
+          take(1),
+        ),
+      );
+
+      await request(app.getHttpServer())
+        .post('/billing/checkout/ticket')
+        .send({ ticketTypeId })
+        .expect(200);
+
+      const event = await received;
+      expect(event.type).toBe('request.created');
+    });
   });
 
   it('returns 401 when unauthenticated', async () => {

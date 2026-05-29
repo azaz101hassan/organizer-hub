@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventStatus, Prisma, TicketSource } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
+import { atCap } from '../tickets/capacity';
 import { StripeClient } from './stripe.client';
 
 export interface BillingCustomerView {
@@ -17,6 +18,14 @@ export interface BillingCustomerView {
 export interface CheckoutSessionView {
   id: string;
   url: string;
+}
+
+// Result of the pre-session intake gates: enough for the controller to branch
+// into a Phase 3 checkout (under cap) or a waitlist request (at cap) without
+// BillingService having to know about ticket-requests.
+export interface TicketIntakeEvaluation {
+  ticketType: { id: string; eventId: string; organizationId: string };
+  atCap: boolean;
 }
 
 @Injectable()
@@ -143,6 +152,55 @@ export class BillingService {
       membership.stripeSubscriptionId,
       { cancel_at_period_end: true },
     );
+  }
+
+  // Run the paid-intake gates WITHOUT minting a session, and report whether the
+  // tier is at cap. Mirrors createTicketCheckoutSession's gate ordering (404 /
+  // not-PUBLISHED hide-existence -> existing-PAID 409) so the controller can
+  // run gates once, decide checkout vs. waitlist on `atCap`, and only then mint
+  // a session. The shared atCap() predicate keeps the "is it full?" decision
+  // from drifting across the paid / claim / public surfaces.
+  async evaluateTicketIntake(
+    userSub: string,
+    ticketTypeId: string,
+  ): Promise<TicketIntakeEvaluation> {
+    const ticketType = await this.prisma.ticketType.findUnique({
+      where: { id: ticketTypeId },
+      include: {
+        event: { select: { id: true, status: true, organizationId: true } },
+      },
+    });
+    if (!ticketType) throw new NotFoundException();
+    if (ticketType.event.status !== EventStatus.PUBLISHED) {
+      throw new NotFoundException();
+    }
+
+    const existing = await this.prisma.ticket.findFirst({
+      where: {
+        userId: userSub,
+        eventId: ticketType.event.id,
+        ticketTypeId,
+        source: TicketSource.PAID,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'You already have a ticket for this event tier.',
+      );
+    }
+
+    const issuedCount = await this.prisma.ticket.count({
+      where: { ticketTypeId },
+    });
+    return {
+      ticketType: {
+        id: ticketType.id,
+        eventId: ticketType.event.id,
+        organizationId: ticketType.event.organizationId,
+      },
+      atCap: atCap(ticketType, issuedCount),
+    };
   }
 
   // Build a Stripe Checkout Session in PAYMENT mode for a single TicketType.

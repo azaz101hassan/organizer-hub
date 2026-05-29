@@ -114,3 +114,22 @@ export interface TicketView {
 }
 
 export type CoverageVerdict = "OWNED" | "CLAIMABLE" | "BUY";
+
+export type TicketRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "CANCELLED_BY_USER"
+  | "EXPIRED";
+
+// Discriminated response of POST /billing/checkout/ticket: a Stripe Checkout
+// URL under cap, or a queued waitlist request at cap. Switch on `kind`.
+export type TicketCheckoutResult =
+  | { kind: "checkout"; url: string }
+  | { kind: "request"; requestId: string; status: TicketRequestStatus };
+
+// Discriminated response of POST /tickets/claim: an issued ticket under cap, or
+// a queued MEMBERSHIP_CLAIM request at cap.
+export type ClaimResult =
+  | { kind: "ticket"; ticket: TicketView }
+  | { kind: "request"; requestId: string; status: TicketRequestStatus };
