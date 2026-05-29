@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { EventsModule } from './events/events.module';
+import { MailModule } from './mail/mail.module';
 import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -24,6 +25,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PrismaModule,
     AuthModule,
     BillingModule,
+    MailModule,
     MembershipsModule,
     OrganizationsModule,
     EventsModule,
