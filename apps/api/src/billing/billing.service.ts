@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventStatus, Prisma, TicketSource } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { atCap } from '../tickets/capacity';
+import { CheckoutSessionFactory } from './checkout-session.factory';
 import { StripeClient } from './stripe.client';
 
 export interface BillingCustomerView {
@@ -36,6 +37,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
     private readonly config: ConfigService,
+    private readonly checkoutSessions: CheckoutSessionFactory,
   ) {}
 
   // Lazy Stripe Customer creation. First-checkout flow calls this; on cold
@@ -247,32 +249,17 @@ export class BillingService {
     }
 
     const customer = await this.getOrCreateStripeCustomer(userSub, userEmail);
-    const webOrigin =
-      this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
 
-    const session = await this.stripeClient.stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer: customer.stripeCustomerId,
-      client_reference_id: userSub,
-      // Stripe Checkout caps metadata values at 500 chars each — these are
-      // all short ids so we're well under. The webhook handler reads
-      // userId from metadata AND verifies it against client_reference_id
-      // as a tamper check.
-      metadata: {
-        userId: userSub,
-        eventId: ticketType.event.id,
-        ticketTypeId,
-      },
-      line_items: [{ price: ticketType.stripePriceId, quantity: 1 }],
-      success_url: `${webOrigin}/events/${ticketType.event.id}?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${webOrigin}/events/${ticketType.event.id}?purchase=canceled`,
+    // Under-cap direct purchase: no expiry, no request back-link. The webhook
+    // reads userId from metadata AND verifies it against client_reference_id
+    // (tamper check); a session with no TicketRequest back-link takes the
+    // unconditional Phase 3 issue path.
+    return this.checkoutSessions.mintTicketSession({
+      userSub,
+      customerId: customer.stripeCustomerId,
+      eventId: ticketType.event.id,
+      ticketTypeId,
+      stripePriceId: ticketType.stripePriceId,
     });
-
-    if (!session.url) {
-      throw new Error(
-        `Stripe Checkout Session ${session.id} returned without a url`,
-      );
-    }
-    return { id: session.id, url: session.url };
   }
 }

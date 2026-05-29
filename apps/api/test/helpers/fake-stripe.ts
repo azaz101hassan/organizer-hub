@@ -35,6 +35,7 @@ export interface FakeCheckoutSession {
   metadata?: Record<string, string>;
   payment_intent?: string | null;
   subscription?: string | null;
+  expires_at?: number | null;
 }
 
 export interface FakeStripeCall {
@@ -125,6 +126,7 @@ interface CheckoutCreateP {
   line_items?: Array<{ price: string; quantity?: number }>;
   success_url?: string;
   cancel_url?: string;
+  expires_at?: number;
 }
 interface PortalCreateP {
   customer: string;
@@ -132,6 +134,9 @@ interface PortalCreateP {
 }
 interface RefundCreateP {
   payment_intent?: string;
+}
+interface RequestOptionsP {
+  idempotencyKey?: string;
 }
 
 export class FakeStripeClient {
@@ -144,8 +149,14 @@ export class FakeStripeClient {
   readonly prices = new Map<string, FakeStripePrice>();
   readonly subscriptions = new Map<string, FakeStripeSubscription>();
   readonly checkoutSessions = new Map<string, FakeCheckoutSession>();
+  // idempotencyKey -> sessionId, so a retried create with the same key returns
+  // the same session (mirrors Stripe; the two-admin approve race shares one).
+  private readonly idempotentSessions = new Map<string, string>();
   readonly invoices = new Map<string, FakeStripeInvoice>();
-  readonly refunds: Array<{ payment_intent: string }> = [];
+  readonly refunds: Array<{
+    payment_intent: string;
+    idempotencyKey?: string;
+  }> = [];
   private nextId = 1;
 
   // The fake's `stripe` property mirrors `stripeClient.stripe.<…>` access from
@@ -267,11 +278,20 @@ export class FakeStripeClient {
         sessions: {
           create: async (
             params: CheckoutCreateP,
+            options?: RequestOptionsP,
           ): Promise<FakeCheckoutSession> => {
             this.calls.push({
               method: 'checkout.sessions.create',
-              args: [params],
+              args: [params, options],
             });
+            const key = options?.idempotencyKey;
+            if (key) {
+              const existingId = this.idempotentSessions.get(key);
+              const existing = existingId
+                ? this.checkoutSessions.get(existingId)
+                : undefined;
+              if (existing) return existing;
+            }
             const id = `cs_test_${this.nextId++}`;
             const url = `https://checkout.stripe.test/${id}`;
             const session: FakeCheckoutSession = {
@@ -281,10 +301,15 @@ export class FakeStripeClient {
               customer: params.customer ?? '',
               client_reference_id: params.client_reference_id ?? null,
               metadata: params.metadata ?? {},
-              payment_intent: null,
+              // A real payment-mode session carries a PaymentIntent once paid;
+              // pre-populate one so a queued checkout.session.completed for this
+              // session has something to (refund or record) against.
+              payment_intent: params.mode === 'payment' ? `pi_${id}` : null,
               subscription: null,
+              expires_at: params.expires_at ?? null,
             };
             this.checkoutSessions.set(id, session);
+            if (key) this.idempotentSessions.set(key, id);
             return session;
           },
         },
@@ -304,11 +329,27 @@ export class FakeStripeClient {
         },
       },
       refunds: {
-        create: async (params: RefundCreateP): Promise<{ id: string }> => {
-          this.calls.push({ method: 'refunds.create', args: [params] });
+        create: async (
+          params: RefundCreateP,
+          options?: RequestOptionsP,
+        ): Promise<{ id: string }> => {
+          this.calls.push({
+            method: 'refunds.create',
+            args: [params, options],
+          });
+          // Idempotency: a redelivered dead-request event reuses the same key,
+          // so Stripe collapses it to one refund. Mirror that here — dedupe the
+          // recorded refunds by idempotency key (falling back to payment_intent).
+          const key = options?.idempotencyKey ?? params.payment_intent;
+          const already = key
+            ? this.refunds.some((r) => r.idempotencyKey === key)
+            : false;
           const id = `re_test_${this.nextId++}`;
-          if (typeof params.payment_intent === 'string') {
-            this.refunds.push({ payment_intent: params.payment_intent });
+          if (typeof params.payment_intent === 'string' && !already) {
+            this.refunds.push({
+              payment_intent: params.payment_intent,
+              idempotencyKey: options?.idempotencyKey,
+            });
           }
           return { id };
         },
@@ -333,6 +374,7 @@ export class FakeStripeClient {
     this.prices.clear();
     this.subscriptions.clear();
     this.checkoutSessions.clear();
+    this.idempotentSessions.clear();
     this.invoices.clear();
     this.refunds.length = 0;
     this.nextId = 1;

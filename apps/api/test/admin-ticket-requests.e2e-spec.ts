@@ -227,6 +227,74 @@ describe('Admin ticket requests (e2e)', () => {
     });
   });
 
+  describe('approve PAID', () => {
+    it('mints an expiring linked session, flips APPROVED, audits, emails, no Ticket yet (AE4)', async () => {
+      const req = await createRequest({ intent: TicketRequestIntent.PAID });
+
+      const res = await request(app.getHttpServer())
+        .post(`/orgs/${orgId}/requests/${req.id}/approve`)
+        .expect(200);
+      expect(jsonBody<{ status: string }>(res).status).toBe(
+        TicketRequestStatus.APPROVED,
+      );
+
+      const row = await prisma.ticketRequest.findUnique({
+        where: { id: req.id },
+      });
+      expect(row?.status).toBe(TicketRequestStatus.APPROVED);
+      expect(row?.stripeCheckoutSessionId).toBeTruthy();
+
+      const calls = fakeStripe.callsFor('checkout.sessions.create');
+      expect(calls).toHaveLength(1);
+      const params = calls[0].args[0] as {
+        expires_at?: number;
+        metadata?: Record<string, string>;
+      };
+      const options = calls[0].args[1] as
+        | { idempotencyKey?: string }
+        | undefined;
+      expect(typeof params.expires_at).toBe('number');
+      expect(params.metadata?.ticketRequestId).toBe(req.id);
+      expect(options?.idempotencyKey).toBe(`waitlist-checkout-${req.id}`);
+
+      const audit = await prisma.ticketRequestAudit.findFirst({
+        where: { ticketRequestId: req.id },
+      });
+      expect(audit).toMatchObject({
+        decision: TicketRequestDecision.APPROVE,
+        issuedCountBefore: 0,
+        issuedCountAfter: 0,
+      });
+      expect(fakeMailer.lastOf('paid-approved')?.to).toBe(REQUESTER_EMAIL);
+
+      const ticket = await prisma.ticket.findUnique({
+        where: { ticketRequestId: req.id },
+      });
+      expect(ticket).toBeNull();
+    });
+
+    it('two concurrent paid approves → one shared session, one APPROVED, loser 409 (AE13)', async () => {
+      const req = await createRequest({ intent: TicketRequestIntent.PAID });
+
+      const statuses = await Promise.all([
+        request(app.getHttpServer())
+          .post(`/orgs/${orgId}/requests/${req.id}/approve`)
+          .then((r) => r.status),
+        request(app.getHttpServer())
+          .post(`/orgs/${orgId}/requests/${req.id}/approve`)
+          .then((r) => r.status),
+      ]);
+      expect(statuses.slice().sort()).toEqual([200, 409]);
+
+      const row = await prisma.ticketRequest.findUnique({
+        where: { id: req.id },
+      });
+      expect(row?.status).toBe(TicketRequestStatus.APPROVED);
+      expect(row?.stripeCheckoutSessionId).toBeTruthy();
+      expect(fakeStripe.checkoutSessions.size).toBe(1);
+    });
+  });
+
   describe('reject', () => {
     it('flips REJECTED, audits, emails, and makes no Stripe call (AE6)', async () => {
       const req = await createRequest();

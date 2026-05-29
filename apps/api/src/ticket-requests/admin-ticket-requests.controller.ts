@@ -49,8 +49,8 @@ export class AdminTicketRequestsController {
     return this.admin.reject(orgId, user.sub, id, dto.reason);
   }
 
-  // U6 handles MEMBERSHIP_CLAIM approval inline; approving a PAID request 409s
-  // until U7 wires the mint-and-reconcile flow into this route.
+  // Dispatches by intent: MEMBERSHIP_CLAIM issues a Ticket inline; PAID mints an
+  // expiring Checkout link and emails it.
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
   @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
@@ -59,6 +59,6 @@ export class AdminTicketRequestsController {
     @Param('orgId') orgId: string,
     @Param('id') id: string,
   ) {
-    return this.admin.approveClaim(orgId, user.sub, id);
+    return this.admin.approve(orgId, user.sub, id);
   }
 }

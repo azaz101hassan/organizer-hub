@@ -10,11 +10,16 @@ import {
   TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
+import { BillingService } from '../billing/billing.service';
+import { CheckoutSessionFactory } from '../billing/checkout-session.factory';
 import { decodeTupleCursor, encodeTupleCursor } from '../common/cursor';
 import { Mailer } from '../mail/mailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
 import { TicketRequestTransitions } from './ticket-request-transitions';
+
+// 24h Checkout link lifetime for PAID approvals (R18).
+const PAID_LINK_TTL_SECONDS = 24 * 60 * 60;
 
 // Admin-facing view: the requester contact + tier/event context + the cap and
 // current issued count so the queue can show the non-blocking over-cap warning
@@ -87,7 +92,25 @@ export class AdminTicketRequestsService {
     private readonly transitions: TicketRequestTransitions,
     private readonly mailer: Mailer,
     private readonly stream: WaitlistStream,
+    // From the @Global BillingModule — the one-way ticket-requests -> billing
+    // dependency for minting the PAID approval Checkout session.
+    private readonly billing: BillingService,
+    private readonly checkoutSessions: CheckoutSessionFactory,
   ) {}
+
+  // Dispatch by intent: MEMBERSHIP_CLAIM issues inline (U6); PAID mints an
+  // expiring Checkout link (U7). assertRequestInOrg here both routes and
+  // 404-hides a cross-org request before any Stripe work.
+  async approve(
+    orgId: string,
+    adminSub: string,
+    id: string,
+  ): Promise<AdminTicketRequestView> {
+    const req = await this.assertRequestInOrg(id, orgId);
+    return req.intent === TicketRequestIntent.PAID
+      ? this.approvePaid(orgId, adminSub, id)
+      : this.approveClaim(orgId, adminSub, id);
+  }
 
   // FIFO (oldest first) pending queue for the org, cursor-paginated so a burst
   // of requests never returns all requester PII in one unbounded payload.
@@ -252,6 +275,94 @@ export class AdminTicketRequestsService {
           requesterName: req.userName ?? 'there',
           eventTitle: req.event.title,
           tierName: req.ticketType.name,
+        },
+      });
+    }
+    this.stream.emit(orgId, { type: 'request.updated', id, data: view });
+    return view;
+  }
+
+  // Approve a PAID request (R11, R18): mint an expiring, customer-scoped
+  // Checkout session BEFORE the CAS so APPROVED always carries a live link (no
+  // dead "approved with no link" state), then CAS PENDING->APPROVED while
+  // stamping the back-link + audit in one tx. The idempotency key collapses a
+  // two-admin race to one shared session; the CAS loser 409s WITHOUT expiring
+  // it (it is the winner's). issuedCount is unchanged (before == after) — the
+  // Ticket materializes later, on payment, in the webhook.
+  async approvePaid(
+    orgId: string,
+    adminSub: string,
+    id: string,
+  ): Promise<AdminTicketRequestView> {
+    const req = await this.assertRequestInOrg(id, orgId);
+    if (req.intent !== TicketRequestIntent.PAID) {
+      throw new ConflictException(
+        'This is a membership-claim request; approve it through the claim flow.',
+      );
+    }
+    if (req.status !== TicketRequestStatus.PENDING) {
+      throw new ConflictException('Request was already decided.');
+    }
+
+    const tt = await this.prisma.ticketType.findUnique({
+      where: { id: req.ticketTypeId },
+      select: { stripePriceId: true },
+    });
+    if (!tt) throw new NotFoundException();
+
+    const customer = await this.billing.getOrCreateStripeCustomer(
+      req.userId,
+      req.userEmail ?? undefined,
+    );
+    const session = await this.checkoutSessions.mintTicketSession({
+      userSub: req.userId,
+      customerId: customer.stripeCustomerId,
+      eventId: req.eventId,
+      ticketTypeId: req.ticketTypeId,
+      stripePriceId: tt.stripePriceId,
+      ticketRequestId: req.id,
+      expiresInSeconds: PAID_LINK_TTL_SECONDS,
+      idempotencyKey: `waitlist-checkout-${req.id}`,
+    });
+
+    const issuedCount = await this.prisma.ticket.count({
+      where: { ticketTypeId: req.ticketTypeId },
+    });
+
+    // CAS + set the back-link + audit in one tx. updateMany (not the transition
+    // helper) because we must set stripeCheckoutSessionId alongside the status.
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.ticketRequest.updateMany({
+        where: { id, status: TicketRequestStatus.PENDING },
+        data: {
+          status: TicketRequestStatus.APPROVED,
+          stripeCheckoutSessionId: session.id,
+        },
+      });
+      if (count === 0) {
+        throw new ConflictException('Request was already decided.');
+      }
+      await this.transitions.writeAudit(tx, {
+        ticketRequestId: id,
+        adminUserId: adminSub,
+        decision: TicketRequestDecision.APPROVE,
+        capAtDecision: req.ticketType.cap,
+        issuedCountBefore: issuedCount,
+        issuedCountAfter: issuedCount,
+      });
+    });
+
+    const view = toView(req, issuedCount, TicketRequestStatus.APPROVED);
+    if (req.userEmail) {
+      await this.mailer.send({
+        template: 'paid-approved',
+        to: req.userEmail,
+        props: {
+          requesterName: req.userName ?? 'there',
+          eventTitle: req.event.title,
+          tierName: req.ticketType.name,
+          checkoutUrl: session.url,
+          expiresAt: new Date(Date.now() + PAID_LINK_TTL_SECONDS * 1000),
         },
       });
     }
