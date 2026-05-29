@@ -1,4 +1,5 @@
 // Smoke fixture for the AI PR Review Copilot dogfood test.
+// Re-review trigger (Stage 2 after the jobId fix). Violations remain.
 // Deliberate eqeqeq violations: == / != where === / !== are required.
 function isPending(order) {
   if (order.status == "pending") {
@@ -10,7 +11,7 @@ function isPending(order) {
   return false;
 }
 
-// Added on synchronize: deliberate no-var violation.
+// Deliberate no-var violation.
 function countItems(items) {
   var total = 0;
   for (var i = 0; i < items.length; i++) {
