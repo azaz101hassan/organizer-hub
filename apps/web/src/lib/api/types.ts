@@ -159,6 +159,36 @@ export interface PaymentLinkView {
   expiresAt: string | null;
 }
 
+// Admin queue row (GET /orgs/:orgId/requests). issuedCount + cap drive the
+// over-cap approve confirm.
+export interface AdminTicketRequestView {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  userName: string | null;
+  intent: TicketRequestIntent;
+  status: TicketRequestStatus;
+  createdAt: string;
+  event: { id: string; title: string };
+  ticketType: { id: string; name: string; cap: number | null };
+  issuedCount: number;
+}
+
+export interface AdminQueuePage {
+  items: AdminTicketRequestView[];
+  nextCursor: string | null;
+}
+
+// What rides the WaitlistStream SSE channel. `data` is intentionally loose —
+// request.created carries a base view; updated/removed often carry only
+// { id, status }. The admin queue treats created as "refetch" and
+// updated/removed as "drop row id" (any transition leaves the PENDING queue).
+export interface WaitlistStreamEvent {
+  type: "request.created" | "request.updated" | "request.removed";
+  id: string;
+  data: { id: string; status?: TicketRequestStatus };
+}
+
 // Discriminated response of POST /billing/checkout/ticket: a Stripe Checkout
 // URL under cap, or a queued waitlist request at cap. Switch on `kind`.
 export type TicketCheckoutResult =

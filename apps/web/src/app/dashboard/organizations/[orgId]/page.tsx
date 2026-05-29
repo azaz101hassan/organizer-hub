@@ -55,6 +55,16 @@ export default async function OrganizationPage({
             {org.role}
           </span>
         </div>
+        {canMutate && (
+          <div className="mt-3">
+            <Link
+              href={`/dashboard/organizations/${org.id}/requests`}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Ticket requests →
+            </Link>
+          </div>
+        )}
       </div>
 
       <section>
