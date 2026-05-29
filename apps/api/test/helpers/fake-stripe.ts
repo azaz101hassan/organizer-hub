@@ -28,7 +28,7 @@ export type FakeSubscriptionStatus =
 
 export interface FakeCheckoutSession {
   id: string;
-  url: string;
+  url: string | null;
   mode: 'subscription' | 'payment';
   customer: string;
   client_reference_id?: string | null;
@@ -36,6 +36,7 @@ export interface FakeCheckoutSession {
   payment_intent?: string | null;
   subscription?: string | null;
   expires_at?: number | null;
+  status?: 'open' | 'complete' | 'expired';
 }
 
 export interface FakeStripeCall {
@@ -307,9 +308,16 @@ export class FakeStripeClient {
               payment_intent: params.mode === 'payment' ? `pi_${id}` : null,
               subscription: null,
               expires_at: params.expires_at ?? null,
+              status: 'open',
             };
             this.checkoutSessions.set(id, session);
             if (key) this.idempotentSessions.set(key, id);
+            return session;
+          },
+          retrieve: async (id: string): Promise<FakeCheckoutSession> => {
+            this.calls.push({ method: 'checkout.sessions.retrieve', args: [id] });
+            const session = this.checkoutSessions.get(id);
+            if (!session) throw new Error(`No such checkout session: ${id}`);
             return session;
           },
         },
@@ -358,6 +366,24 @@ export class FakeStripeClient {
   }
 
   // Test helpers — populate state without exercising the SDK surface.
+  seedCheckoutSession(
+    s: Pick<FakeCheckoutSession, 'id'> & Partial<FakeCheckoutSession>,
+  ): FakeCheckoutSession {
+    const session: FakeCheckoutSession = {
+      id: s.id,
+      url: s.url ?? `https://checkout.stripe.test/${s.id}`,
+      mode: s.mode ?? 'payment',
+      customer: s.customer ?? '',
+      client_reference_id: s.client_reference_id ?? null,
+      metadata: s.metadata ?? {},
+      payment_intent: s.payment_intent ?? `pi_${s.id}`,
+      subscription: s.subscription ?? null,
+      expires_at: s.expires_at ?? null,
+      status: s.status ?? 'open',
+    };
+    this.checkoutSessions.set(session.id, session);
+    return session;
+  }
   seedSubscription(s: FakeStripeSubscription): void {
     this.subscriptions.set(s.id, s);
   }

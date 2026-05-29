@@ -28,6 +28,7 @@ describe('Requester ticket requests (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let fakeMailer: FakeMailer;
+  let fakeStripe: FakeStripeClient;
   const currentSub = makeSubHolder(ME);
 
   let orgId: string;
@@ -36,8 +37,9 @@ describe('Requester ticket requests (e2e)', () => {
 
   beforeAll(async () => {
     fakeMailer = new FakeMailer();
+    fakeStripe = new FakeStripeClient();
     ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(currentSub), [
-      { token: StripeClient, useValue: new FakeStripeClient() },
+      { token: StripeClient, useValue: fakeStripe },
       { token: Mailer, useValue: fakeMailer },
     ]));
   });
@@ -49,6 +51,7 @@ describe('Requester ticket requests (e2e)', () => {
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     fakeMailer.reset();
+    fakeStripe.reset();
     currentSub.value = ME;
 
     const org = await prisma.organization.create({
@@ -183,6 +186,84 @@ describe('Requester ticket requests (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/requests/${req.id}/cancel`)
       .expect(409);
+  });
+
+  describe('GET /requests/:id/payment-link', () => {
+    it('returns the live Checkout url + expiry for an approved-awaiting-payment PAID request', async () => {
+      const expiresAt = Math.floor(
+        new Date('2026-05-31T00:00:00Z').getTime() / 1000,
+      );
+      fakeStripe.seedCheckoutSession({
+        id: 'cs_pay_1',
+        url: 'https://checkout.stripe.test/cs_pay_1',
+        expires_at: expiresAt,
+      });
+      const req = await prisma.ticketRequest.create({
+        data: {
+          userId: ME,
+          userEmail: `${ME}@example.com`,
+          ticketTypeId,
+          eventId,
+          intent: TicketRequestIntent.PAID,
+          status: TicketRequestStatus.APPROVED,
+          stripeCheckoutSessionId: 'cs_pay_1',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/requests/${req.id}/payment-link`)
+        .expect(200);
+      const body = jsonBody<{ url: string | null; expiresAt: string | null }>(
+        res,
+      );
+      expect(body.url).toBe('https://checkout.stripe.test/cs_pay_1');
+      expect(body.expiresAt).toBe(new Date(expiresAt * 1000).toISOString());
+    });
+
+    it('409s for a PENDING request (not awaiting payment)', async () => {
+      const req = await createRequest({ status: TicketRequestStatus.PENDING });
+      await request(app.getHttpServer())
+        .get(`/requests/${req.id}/payment-link`)
+        .expect(409);
+    });
+
+    it('409s for an approved PAID request that already has a ticket', async () => {
+      fakeStripe.seedCheckoutSession({ id: 'cs_pay_2' });
+      const req = await prisma.ticketRequest.create({
+        data: {
+          userId: ME,
+          ticketTypeId,
+          eventId,
+          intent: TicketRequestIntent.PAID,
+          status: TicketRequestStatus.APPROVED,
+          stripeCheckoutSessionId: 'cs_pay_2',
+        },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: ME,
+          eventId,
+          ticketTypeId,
+          source: 'PAID',
+          ticketRequestId: req.id,
+          stripeCheckoutSessionId: 'cs_pay_2',
+        },
+      });
+
+      await request(app.getHttpServer())
+        .get(`/requests/${req.id}/payment-link`)
+        .expect(409);
+    });
+
+    it('hides another user’s request behind 404 on payment-link (R27)', async () => {
+      const otherReq = await createRequest({
+        userId: OTHER,
+        status: TicketRequestStatus.APPROVED,
+      });
+      await request(app.getHttpServer())
+        .get(`/requests/${otherReq.id}/payment-link`)
+        .expect(404);
+    });
   });
 
   it('hides another user’s request behind 404 on get and cancel (AE12, R27)', async () => {

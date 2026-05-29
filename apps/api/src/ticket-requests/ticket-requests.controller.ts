@@ -30,6 +30,17 @@ export class TicketRequestsController {
     return this.requests.getForUser(user.sub, id);
   }
 
+  // The live Checkout link + expiry for an APPROVED-awaiting-payment PAID
+  // request (U11 "Complete payment" CTA). The web has no Stripe secret, so it
+  // fetches the URL server-side here only when rendering that one state.
+  @Get(':id/payment-link')
+  paymentLink(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.requests.getPaymentLink(user.sub, id);
+  }
+
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {

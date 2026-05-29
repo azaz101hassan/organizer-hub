@@ -3,10 +3,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TicketRequestStatus } from '@organizer-hub/db/api';
+import {
+  Prisma,
+  TicketRequestIntent,
+  TicketRequestStatus,
+} from '@organizer-hub/db/api';
+import { CheckoutSessionFactory } from '../billing/checkout-session.factory';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
 import { TicketRequestView, toTicketRequestView } from './ticket-request-view';
+
+// The live "Complete payment" link + expiry for an APPROVED-awaiting-payment
+// PAID request. `url` is null once Stripe has expired the session.
+export interface PaymentLinkView {
+  url: string | null;
+  expiresAt: Date | null;
+}
 
 // Requester-facing view. Extends the base view with denormalized event/tier
 // display fields and `hasTicket`, which distinguishes APPROVED-awaiting-payment
@@ -60,6 +72,9 @@ export class TicketRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stream: WaitlistStream,
+    // From the @Global BillingModule — the one-way ticket-requests -> billing
+    // dependency, reused here to re-read the Checkout session URL + expiry.
+    private readonly checkoutSessions: CheckoutSessionFactory,
   ) {}
 
   async listForUser(userId: string): Promise<RequesterTicketRequestView[]> {
@@ -114,6 +129,31 @@ export class TicketRequestsService {
       ...toRequesterView(row),
       status: TicketRequestStatus.CANCELLED_BY_USER,
     };
+  }
+
+  // The live Checkout link + expiry for the caller's APPROVED-awaiting-payment
+  // PAID request (U11's "Complete payment" CTA). 404 hides a non-owned/unknown
+  // request; 409 for any request that is not actually awaiting payment (wrong
+  // intent/status, already ticketed, or no session linked) so the web only
+  // calls this for the one state that has a link.
+  async getPaymentLink(userId: string, id: string): Promise<PaymentLinkView> {
+    const row = await this.findOwn(userId, id);
+    if (!row) throw new NotFoundException();
+
+    // The null check is last so TS narrows stripeCheckoutSessionId to string
+    // for the retrieve call below.
+    if (
+      row.intent !== TicketRequestIntent.PAID ||
+      row.status !== TicketRequestStatus.APPROVED ||
+      row.ticket !== null ||
+      row.stripeCheckoutSessionId === null
+    ) {
+      throw new ConflictException('This request has no active payment link.');
+    }
+
+    return this.checkoutSessions.retrieveTicketSession(
+      row.stripeCheckoutSessionId,
+    );
   }
 
   private findOwn(userId: string, id: string): Promise<RequesterRow | null> {

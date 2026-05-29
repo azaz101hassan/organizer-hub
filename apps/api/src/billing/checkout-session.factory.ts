@@ -74,4 +74,22 @@ export class CheckoutSessionFactory {
     }
     return { id: session.id, url: session.url };
   }
+
+  // Re-read a previously minted session so the requester dashboard can surface
+  // the live "Complete payment" link + its expiry without storing the URL (the
+  // web has no Stripe secret). `url` comes back null once Stripe expires the
+  // session; the caller renders the "payment window closed" state in that case.
+  async retrieveTicketSession(
+    sessionId: string,
+  ): Promise<{ url: string | null; expiresAt: Date | null }> {
+    const session =
+      await this.stripeClient.stripe.checkout.sessions.retrieve(sessionId);
+    return {
+      url: session.url ?? null,
+      expiresAt:
+        typeof session.expires_at === 'number'
+          ? new Date(session.expires_at * 1000)
+          : null,
+    };
+  }
 }

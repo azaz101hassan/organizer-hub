@@ -133,6 +133,32 @@ export type TicketRequestStatus =
   | "CANCELLED_BY_USER"
   | "EXPIRED";
 
+// Requester-facing request view (GET /requests, /requests/:id). hasTicket
+// distinguishes APPROVED-awaiting-payment (PAID, false) from APPROVED-with-
+// ticket (true).
+export interface RequesterTicketRequestView {
+  id: string;
+  userId: string;
+  ticketTypeId: string;
+  eventId: string;
+  intent: TicketRequestIntent;
+  status: TicketRequestStatus;
+  stripeCheckoutSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  event: { id: string; title: string; startsAt: string };
+  ticketTypeName: string;
+  ticketTypePriceCents: number;
+  hasTicket: boolean;
+}
+
+// GET /requests/:id/payment-link — the live Checkout link + expiry for an
+// APPROVED-awaiting-payment PAID request. url is null once Stripe expires it.
+export interface PaymentLinkView {
+  url: string | null;
+  expiresAt: string | null;
+}
+
 // Discriminated response of POST /billing/checkout/ticket: a Stripe Checkout
 // URL under cap, or a queued waitlist request at cap. Switch on `kind`.
 export type TicketCheckoutResult =
