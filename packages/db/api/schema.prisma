@@ -58,6 +58,35 @@ enum TicketSource {
   MEMBERSHIP_CLAIM
 }
 
+// Phase 4 waitlist. A TicketRequest is created in place of an instant issue
+// when a TicketType is at cap. Intent mirrors TicketSource: PAID requests get
+// an emailed Checkout link on approval; MEMBERSHIP_CLAIM requests issue a
+// Ticket inline on approval.
+enum TicketRequestIntent {
+  PAID
+  MEMBERSHIP_CLAIM
+}
+
+// Five-state lifecycle. PENDING is the only mutable state for admin/requester
+// actions; the four terminal/awaiting states are reached via compare-and-set
+// transitions. APPROVED is "awaiting payment" for PAID until a Ticket links to
+// the request; it is "issued" immediately for MEMBERSHIP_CLAIM.
+enum TicketRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED_BY_USER
+  EXPIRED
+}
+
+// The admin verb captured on each moderation decision (R14). Intentionally
+// not generalized for scheduler/cancel sources — only admin approve/reject is
+// audited.
+enum TicketRequestDecision {
+  APPROVE
+  REJECT
+}
+
 // ---------- Organizations ----------
 
 model Organization {
@@ -109,9 +138,10 @@ model Event {
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ticketTypes  TicketType[]
-  tickets      Ticket[]
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticketTypes    TicketType[]
+  tickets        Ticket[]
+  ticketRequests TicketRequest[]
 
   @@unique([organizationId, slug])
   @@index([status, startsAt])
@@ -142,8 +172,9 @@ model TicketType {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  tickets Ticket[]
+  event          Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tickets        Ticket[]
+  ticketRequests TicketRequest[]
 
   @@index([eventId])
   @@map("ticket_types")
@@ -166,16 +197,76 @@ model Ticket {
   source                  TicketSource
   stripeCheckoutSessionId String?      @unique @map("stripe_checkout_session_id")
   stripePaymentIntentId   String?      @unique @map("stripe_payment_intent_id")
+  // Back-link to the waitlist request this Ticket fulfilled, if any (null for
+  // instant under-cap issues). @unique is the DB-level "at most one Ticket per
+  // request" guarantee (R25) — the first real issuance-uniqueness constraint
+  // on a request→ticket path. ON DELETE SET NULL: a purged TicketRequest must
+  // never cascade-delete an issued, paid Ticket — the Ticket is the durable
+  // artifact, the request is only provenance.
+  ticketRequestId         String?      @unique @map("ticket_request_id")
   issuedAt                DateTime     @default(now()) @map("issued_at")
 
-  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
-  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id])
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketRequest TicketRequest? @relation(fields: [ticketRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([eventId])
   @@index([ticketTypeId])
   @@index([userId, eventId, ticketTypeId, source])
   @@map("tickets")
+}
+
+// ---------- Ticket requests (Phase 4 waitlist) ----------
+
+// A pending-or-resolved request for a ticket on an at-cap TicketType. eventId
+// is denormalized (copied at creation) so the org-scoped admin queue and SSE
+// org resolution never need a TicketType→Event join on every read.
+//
+// One-open-request-per-(user, tier) is enforced by a hand-written PARTIAL
+// UNIQUE INDEX (user_id, ticket_type_id) WHERE status IN ('PENDING','APPROVED')
+// that Prisma 6.x cannot express — it lives in the migration
+// add_ticket_request_partial_unique and is guarded against drift on boot.
+model TicketRequest {
+  id                      String              @id @default(cuid())
+  userId                  String              @map("user_id") // sub from accounts; no FK across contexts
+  ticketTypeId            String              @map("ticket_type_id")
+  eventId                 String              @map("event_id")
+  intent                  TicketRequestIntent
+  status                  TicketRequestStatus @default(PENDING)
+  // Set at PAID approval (U7). The server-written back-link the webhook
+  // resolves the request by — authoritative over attacker-influenceable
+  // session metadata. @unique so a redelivered session can't double-link.
+  stripeCheckoutSessionId String?             @unique @map("stripe_checkout_session_id")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticket     Ticket?
+
+  @@index([eventId, status])
+  @@index([userId])
+  @@map("ticket_requests")
+}
+
+// One row per admin moderation decision (R14). Captures who decided, the cap
+// at decision time, and the issued count before/after so an over-cap approval
+// is permanently recorded. Not generalized for scheduler/cancel sources — and
+// deliberately not FK-linked to TicketRequest, so the audit trail survives any
+// future purge of the request it describes.
+model TicketRequestAudit {
+  id                String                @id @default(cuid())
+  ticketRequestId   String                @map("ticket_request_id")
+  adminUserId       String                @map("admin_user_id") // sub from accounts
+  decision          TicketRequestDecision
+  capAtDecision     Int?                  @map("cap_at_decision")
+  issuedCountBefore Int                   @map("issued_count_before")
+  issuedCountAfter  Int                   @map("issued_count_after")
+  createdAt         DateTime              @default(now()) @map("created_at")
+
+  @@index([ticketRequestId])
+  @@map("ticket_request_audits")
 }
 
 // ---------- Billing ----------

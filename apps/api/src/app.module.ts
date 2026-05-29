@@ -9,6 +9,7 @@ import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
+import { TicketRequestsModule } from './ticket-requests/ticket-requests.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 
@@ -28,6 +29,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     EventsModule,
     PublicModule,
     TicketsModule,
+    TicketRequestsModule,
     WebhooksModule,
   ],
   controllers: [AppController],
