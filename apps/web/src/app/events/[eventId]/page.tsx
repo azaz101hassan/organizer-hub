@@ -6,13 +6,13 @@ import {
   publicApiFetch,
   readSession,
   UnauthorizedError,
+  formatDateTime,
 } from "@organizer-hub/web-shared";
 import type {
   CoverageResult,
   PublicEventView,
   TicketTypePublicView,
 } from "@organizer-hub/web-shared";
-import { formatDateTime } from "@/lib/format";
 import TicketRow from "./TicketRow";
 
 export const dynamic = "force-dynamic";

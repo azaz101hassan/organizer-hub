@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import { ApiError, apiFetch, UnauthorizedError, formatDateTime } from "@organizer-hub/web-shared";
 import type { EventStatus, EventView, OrganizationView } from "@organizer-hub/web-shared";
-import { formatDateTime } from "@/lib/format";
 
 const STATUS_BADGE: Record<EventStatus, string> = {
   DRAFT: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",

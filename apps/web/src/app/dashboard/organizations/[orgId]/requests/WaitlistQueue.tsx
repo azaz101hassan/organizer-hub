@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AdminTicketRequestView } from "@organizer-hub/web-shared";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@organizer-hub/web-shared/client";
 import {
   approveRequest,
   refetchQueue,

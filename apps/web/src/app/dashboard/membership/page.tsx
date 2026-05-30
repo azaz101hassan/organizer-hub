@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
-import { formatDateTime } from "@/lib/format";
+import { apiFetch, UnauthorizedError, formatDateTime } from "@organizer-hub/web-shared";
 import type {
   MembershipView,
   SubscriptionStatus,

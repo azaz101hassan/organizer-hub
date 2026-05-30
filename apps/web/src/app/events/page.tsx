@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { ApiError, publicApiFetch } from "@organizer-hub/web-shared";
+import { ApiError, publicApiFetch, formatDateTime } from "@organizer-hub/web-shared";
 import type { PublicEventsPage } from "@organizer-hub/web-shared";
-import { formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
