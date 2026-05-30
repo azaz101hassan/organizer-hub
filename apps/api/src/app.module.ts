@@ -18,7 +18,10 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['apps/api/.env.local', '.env'],
+    }),
     // The ThrottlerGuard is NOT registered globally; the webhook controller
     // opts in via @UseGuards(ThrottlerGuard). Other routes are unaffected,
     // which keeps Phase 2 auth/events e2e specs green and lets us scope rate

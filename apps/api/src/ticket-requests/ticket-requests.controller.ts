@@ -34,10 +34,7 @@ export class TicketRequestsController {
   // request (U11 "Complete payment" CTA). The web has no Stripe secret, so it
   // fetches the URL server-side here only when rendering that one state.
   @Get(':id/payment-link')
-  paymentLink(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ) {
+  paymentLink(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.requests.getPaymentLink(user.sub, id);
   }
 

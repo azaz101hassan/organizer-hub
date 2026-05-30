@@ -15,4 +15,10 @@ function findUp(name: string, start: string = __dirname): string | undefined {
 }
 
 const envFile = findUp('.env');
-if (envFile) loadDotenv({ path: envFile });
+if (envFile) {
+  loadDotenv({ path: envFile });
+  const repoRoot = nodePath.dirname(envFile);
+  const apiEnvLocal = nodePath.join(repoRoot, 'apps', 'api', '.env.local');
+  if (fs.existsSync(apiEnvLocal))
+    loadDotenv({ path: apiEnvLocal, override: true });
+}
