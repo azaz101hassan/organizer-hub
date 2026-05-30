@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AdminTicketRequestView } from "@/lib/api/types";
+import type { AdminTicketRequestView } from "@organizer-hub/web-shared";
 import { formatDateTime } from "@/lib/format";
 import {
   approveRequest,

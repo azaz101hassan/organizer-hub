@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 
 // subscribeToTier — called from the pricing page's per-card form. On
 // unauthenticated callers we hop through /auth/login with a `next` so the

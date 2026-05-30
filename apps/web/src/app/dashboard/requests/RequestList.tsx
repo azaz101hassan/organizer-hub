@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { RequesterTicketRequestView } from "@/lib/api/types";
+import type { RequesterTicketRequestView } from "@organizer-hub/web-shared";
 import { formatDateTime } from "@/lib/format";
 import { RequestStatusBadge } from "./RequestStatusBadge";
 

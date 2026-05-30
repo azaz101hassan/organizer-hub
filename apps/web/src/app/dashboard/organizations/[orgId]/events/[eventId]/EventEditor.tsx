@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useTransition } from "react";
-import type { EventView } from "@/lib/api/types";
+import type { EventView } from "@organizer-hub/web-shared";
 import { toDatetimeLocalValue } from "@/lib/format";
 import {
   cancelEvent,

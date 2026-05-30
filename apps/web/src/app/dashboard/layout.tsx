@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { readSession } from "@/lib/api/session";
+import { readSession } from "@organizer-hub/web-shared";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await readSession();
+  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh" });
   if (!session) redirect("/auth/login");
 
   return (

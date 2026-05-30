@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 import type {
   EventStatus,
   EventView,
   OrganizationView,
-} from "@/lib/api/types";
+} from "@organizer-hub/web-shared";
 import EventEditor from "./EventEditor";
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:3000";

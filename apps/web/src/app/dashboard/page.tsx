@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { OrganizationView } from "@/lib/api/types";
+import { apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { OrganizationView } from "@organizer-hub/web-shared";
 
 const ROLE_BADGE: Record<OrganizationView["role"], string> = {
   OWNER:

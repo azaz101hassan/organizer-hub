@@ -1,4 +1,4 @@
-import type { TicketRequestStatus } from "@/lib/api/types";
+import type { TicketRequestStatus } from "@organizer-hub/web-shared";
 
 const LABEL: Record<TicketRequestStatus, string> = {
   PENDING: "Pending",

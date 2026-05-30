@@ -256,6 +256,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@organizer-hub/web-shared':
+        specifier: workspace:*
+        version: link:../../packages/web-shared
       jose:
         specifier: ^6.2.3
         version: 6.2.3

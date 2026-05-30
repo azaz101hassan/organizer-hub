@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { publicApiFetch } from "@/lib/api/client";
-import type { MembershipPlanView } from "@/lib/api/types";
+import { publicApiFetch } from "@organizer-hub/web-shared";
+import type { MembershipPlanView } from "@organizer-hub/web-shared";
 import { subscribeToTier } from "./actions";
 
 const TIER_COPY: Record<

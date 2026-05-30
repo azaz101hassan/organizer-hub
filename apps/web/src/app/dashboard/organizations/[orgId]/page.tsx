@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { EventStatus, EventView, OrganizationView } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { EventStatus, EventView, OrganizationView } from "@organizer-hub/web-shared";
 import { formatDateTime } from "@/lib/format";
 
 const STATUS_BADGE: Record<EventStatus, string> = {

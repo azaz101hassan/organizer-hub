@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { MembershipView } from "@/lib/api/types";
+import { apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { MembershipView } from "@organizer-hub/web-shared";
 
 // /membership/success — Stripe's success_url landing. We hit /memberships/me
 // which opportunistically syncs from Stripe if the local row hasn't landed

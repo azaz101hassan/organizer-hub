@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { RequesterTicketRequestView } from "@/lib/api/types";
+import { apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { RequesterTicketRequestView } from "@organizer-hub/web-shared";
 import RequestList from "./RequestList";
 
 export const dynamic = "force-dynamic";
