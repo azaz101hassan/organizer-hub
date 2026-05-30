@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import * as path from 'node:path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
@@ -20,7 +21,10 @@ import { WebhooksModule } from './webhooks/webhooks.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['apps/api/.env.local', '.env'],
+      envFilePath: [
+        path.resolve(__dirname, '../../../apps/api/.env.local'),
+        path.resolve(__dirname, '../../../.env'),
+      ],
     }),
     // The ThrottlerGuard is NOT registered globally; the webhook controller
     // opts in via @UseGuards(ThrottlerGuard). Other routes are unaffected,
