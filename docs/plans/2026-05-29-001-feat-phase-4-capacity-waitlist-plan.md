@@ -75,7 +75,7 @@ Carried from origin (all Phase 5+ unless noted):
 
 - **Per-request rate limiting / concurrent-`PENDING` cap beyond the one-open-request constraint** — `@nestjs/throttler` is already available to opt in per-route if a flood becomes a concern; not a Phase 4 blocker (see Open Questions → Deferred to Implementation).
 - **Production reverse-proxy / LB config for SSE** (nginx `proxy_buffering off`, idle-timeout, HTTP/2) — captured as an operational note in U13's setup doc, not app code.
-- **`docs/solutions/` learnings capture** — after Phase 4 lands, write notes covering the query-token SSE pattern, the CAS-transition + partial-unique-index concurrency model, the mailer seam, and the webhook reconciliation guard. Flagged because three of these are the team's first documented patterns in those areas (the institutional-learnings researcher found no prior coverage).
+- **`docs/solutions/` learnings capture** — after Phase 4 lands, write notes covering the query-token SSE pattern, the CAS-transition + partial-unique-index concurrency model, the mailer seam, and the webhook reconciliation guard. Flagged because three of these are the team's first documented patterns in those areas.
 
 ---
 

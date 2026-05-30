@@ -16,7 +16,7 @@ Layer Stripe-powered billing onto OrganizerHub as a thin mirror ledger: Stripe o
 
 ## Problem Frame
 
-At the end of Phase 2 OrganizerHub has events end-to-end but no money path — every "Get tickets" surface is a placeholder. The brainstorm at `docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md` settled the product shape (platform-wide tiered memberships + tiered one-time tickets + per-event coverage override + platform-collected merchant of record) and the open questions left for planning are all technical: how to layer Stripe onto the existing NestJS + Next.js + Prisma stack without inventing a parallel transactional system.
+At the end of Phase 2 OrganizerHub has events end-to-end but no money path — every "Get tickets" surface is a placeholder. The requirements document at `docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md` settled the product shape (platform-wide tiered memberships + tiered one-time tickets + per-event coverage override + platform-collected merchant of record) and the open questions left for planning are all technical: how to layer Stripe onto the existing NestJS + Next.js + Prisma stack without inventing a parallel transactional system.
 
 ---
 
@@ -72,7 +72,7 @@ Plan-local additions:
 
 ### Deferred to Follow-Up Work
 
-- **`docs/solutions/` learnings capture** — after Phase 3 lands, write `docs/solutions/billing/` notes covering the syncStripeData pattern, the rename-before-reuse migration ordering, and the NestJS Stripe testing seam. Out of scope for this plan but flagged because the institutional-learnings researcher noted the absence as a gap worth filling.
+- **`docs/solutions/` learnings capture** — after Phase 3 lands, write `docs/solutions/billing/` notes covering the syncStripeData pattern, the rename-before-reuse migration ordering, and the NestJS Stripe testing seam. Out of scope for this plan but flagged as a gap worth filling.
 
 ---
 
@@ -117,7 +117,7 @@ The mirror-ledger architecture is the spine; every other decision flows from it.
 - **Webhook idempotency via a `WebhookEvent` dedupe table.** `stripeEventId @id` (primary key, never `@unique` on a `cuid`). Handler: INSERT first → catch `P2002` → if collision, return 200 without re-processing; else proceed inside the same transaction. Stripe re-emits the same `evt_...` on retries, so the unique constraint is the durable dedupe key.
 - **Stripe SDK behind an injectable seam.** `StripeClient` (thin `Stripe` wrapper) + `StripeWebhookVerifier` (wraps `stripe.webhooks.constructEvent`) registered as NestJS providers. E2E tests stub both via `overrideProvider`, avoiding real Stripe calls in CI. `bootTestApp` is extended to accept `providerOverrides` (signature change scoped to U2).
 - **NestJS `rawBody: true` globally** — keeps parsed body AND raw bytes available. Webhook controller reads `req.rawBody` for signature verification; every other controller is unaffected. No scoped middleware needed.
-- **Add `invoice.paid` to webhook handlers (extends R14).** Stripe's explicit recommendation for "provision access on `invoice.paid` when subscription status is active." Beyond the brainstorm's minimum but cheap to add and prevents a class of access-gating bugs.
+- **Add `invoice.paid` to webhook handlers (extends R14).** Stripe's explicit recommendation for "provision access on `invoice.paid` when subscription status is active." Beyond the requirements' minimum but cheap to add and prevents a class of access-gating bugs.
 - **TicketType has `priceCents` as a read-side cache; canonical price lives in Stripe.** On TicketType create, the api creates a Stripe Product + Price and stores `stripePriceId` + `stripeProductId` + `priceCents` locally. On update, archive old Stripe Price + create new one (Stripe Prices are immutable) and update the local cache. This is the standard Stripe pattern and keeps the mirror-ledger honest: the *truth* is in Stripe, the local cache is for fast event-page rendering.
 - **MembershipPlan does NOT cache `priceCents`.** Only six SKUs, low-traffic pricing page, can fetch from Stripe on render with server-side caching if needed.
 - **Free-claim idempotency via DB unique constraint `(userId, eventId, ticketTypeId)`.** P2002 → 409 Conflict. No client-supplied idempotency key needed.
@@ -149,11 +149,11 @@ The mirror-ledger architecture is the spine; every other decision flows from it.
 
 ### From 2026-05-21 review
 
-These were flagged by `ce-doc-review` and deferred during interactive routing because each is a real tradeoff that benefits from explicit user input before implementation. Resolve before the corresponding unit lands.
+These were flagged during the 2026-05-21 plan review and deferred because each is a real tradeoff that benefits from explicit decision before implementation. Resolve before the corresponding unit lands.
 
 - **[P0] Webhook endpoint rate-limit / IP-allowlist strategy** *(Affects U2, U4)* — Signature verification is the primary defense, but invalid-signature floods still consume CPU on HMAC computation. Decide: rate-limit at the application layer (e.g., NestJS throttler scoped to `/webhooks/stripe`) or restrict to Stripe's published egress CIDR list at the LB/ingress layer. For Phase 3 portfolio scope, the simpler app-layer throttler may suffice; document either way in `docs/phase-3-stripe-setup.md`.
 - **[P0] Spoofed-event-ID threat model documentation** *(Affects U2)* — Webhook dedupe via `WebhookEvent.stripeEventId @id` prevents legitimate Stripe redelivery but NOT adversarial novel-event forgery in the (unlikely) case `STRIPE_WEBHOOK_SECRET` leaks. The security model rests entirely on secret confidentiality. Partially addressed by the U10 setup-doc additions covering rotation + the security-model note; final acknowledgement is whether the doc-level note is sufficient or warrants a dedicated runbook.
-- **[P1] Platform-wide membership coverage intent** *(Affects U8)* — Is a Gold member intended to claim free tickets on ANY published event across ANY organization on the platform, or only events at organizations they have a relationship with? Plan currently reads as the former (no org-scoping check on `/tickets/claim`). The default matches "platform-wide" intent from the brainstorm but should be explicitly confirmed and surfaced as a design decision (with implications for the `members_excluded` toggle being the organizer's only override).
+- **[P1] Platform-wide membership coverage intent** *(Affects U8)* — Is a Gold member intended to claim free tickets on ANY published event across ANY organization on the platform, or only events at organizations they have a relationship with? Plan currently reads as the former (no org-scoping check on `/tickets/claim`). The default matches "platform-wide" intent from the requirements doc but should be explicitly confirmed and surfaced as a design decision (with implications for the `members_excluded` toggle being the organizer's only override).
 - **[P1] Cross-surface upsell on event detail** *(Affects U9)* — The hybrid-monetization premise depends on tickets and memberships reinforcing each other. Plan currently shows insufficient-tier members and non-members a flat "Buy" button with no "Upgrade to <tier> from $X/mo to claim free" affordance. Decide: add an upsell affordance to U9 in Phase 3, or accept Phase 3 ships the rails without the cross-sell and surface that as a known portfolio-conversion gap.
 - **[P1] Tier-change UX policy declared but no implementation unit ships flow** *(Affects U4, U5, Key Technical Decisions)* — KTD documents `proration_behavior: 'always_invoice'` for upgrades and `proration_behavior: 'none'` for downgrades, but no unit implements the `POST /billing/membership/change-plan` endpoint or web action. Decide: add a minimal change-plan endpoint + server action to U4/U5 in Phase 3, or move the tier-change UX bullet out of KTD into Scope Boundaries → "tier-change flow deferred to Phase 4+".
 - **[P1] Payment-succeeded-but-Ticket-INSERT-fails refund path** *(Affects U7)* — If the webhook handler verifies + dedupes but the Ticket INSERT throws (FK violation on deleted TicketType, P2002 race against a concurrent free claim), the user paid Stripe with no Ticket issued. Plan currently logs warning + acks 200. Decide: auto-refund via `stripe.refunds.create({ payment_intent })` inside the handler (closes the loop) or document a manual-cleanup runbook in `docs/phase-3-stripe-setup.md`. The metadata cross-validation already calls for auto-refund on tampering (U7); extending it to FK / P2002 cases is consistent.
@@ -781,7 +781,7 @@ These specifications are authoritative for U5 and U9. The implementer follows th
 **Approach:**
 - Smoke checklist is the manual gate for Phase 3, matching Phase 2's pattern.
 - README update follows the same shape as the Phase 2 update (`c53a55d`).
-- Commit Phase 3 as a single `feat: ...` commit at the end of U10, per the Phase 1/2 precedent and the CLAUDE.local.md style rules. Body is a multi-bullet list.
+- Commit Phase 3 as a single `feat: ...` commit at the end of U10, per the Phase 1/2 precedent and the repo's commit-message conventions. Body is a multi-bullet list.
 
 **Patterns to follow:**
 - `docs/phase-2-browser-smoke.md` — verbatim shape.
@@ -845,7 +845,7 @@ These specifications are authoritative for U5 and U9. The implementer follows th
 
 ## Phased Delivery
 
-Phase 3 lands in 10 implementation units across four logical phases. Each unit is one commit (per the CLAUDE.local.md conventions). Phase 3 itself is one feature branch (or 10 incremental commits on main, depending on the team workflow — Phase 1/2 precedent was main).
+Phase 3 lands in 10 implementation units across four logical phases. Each unit is one commit (per the repo's commit conventions). Phase 3 itself is one feature branch (or 10 incremental commits on main, depending on the team workflow — Phase 1/2 precedent was main).
 
 ### Phase A — Foundation (U1, U2)
 

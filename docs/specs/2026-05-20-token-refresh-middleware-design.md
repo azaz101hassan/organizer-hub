@@ -172,4 +172,4 @@ All three are accepted Phase-1 trade-offs with documented Phase-2 mitigation pat
 
 ## Open questions
 
-None. All design decisions confirmed in the brainstorming session on 2026-05-20.
+None. All design decisions confirmed on 2026-05-20.

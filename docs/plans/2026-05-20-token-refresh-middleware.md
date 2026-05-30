@@ -1,14 +1,12 @@
 # Token Refresh Middleware Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Keep an authenticated web session alive across id_token expirations by exchanging the refresh_token in Next.js middleware, transparent to pages.
 
 **Architecture:** A Next.js middleware decodes the `session` cookie's id_token, and within a 60-second skew window of expiry, exchanges the `refresh_token` at the IdP's `/oidc/token` endpoint and rotates `session` / `access_token` / `refresh_token` cookies on the outgoing response. On any failure, all three cookies are cleared and the request continues — the Home page renders its signed-out UI.
 
 **Tech Stack:** Next.js 15 middleware (Edge runtime), `jose` for JWT decoding, native `fetch` for the token exchange, `NextRequest`/`NextResponse` cookie API.
 
-**Spec:** `docs/superpowers/specs/2026-05-20-token-refresh-middleware-design.md`
+**Spec:** `docs/specs/2026-05-20-token-refresh-middleware-design.md`
 
 ---
 
@@ -289,10 +287,9 @@ This change is temporary and reverted in Step 6.
 
 - [ ] **Step 2: Restart the accounts and web dev servers**
 
-Ensure both `apps/accounts` (port 3002) and `apps/web` (port 3000) are running from this worktree's checkout. If servers were running off `main`, stop those and start from the worktree:
+Ensure both `apps/accounts` (port 3002) and `apps/web` (port 3000) are running from this branch's checkout. If servers were running off `main`, stop those and restart:
 
 ```bash
-# In the worktree root
 pnpm --filter @organizer-hub/accounts dev &
 pnpm --filter @organizer-hub/web dev &
 ```
@@ -367,4 +364,4 @@ Restore `accessTokenTTL: 60 * 60` in `apps/accounts/src/oidc/oidc.service.ts`. R
 - Manual happy path (Task 4) confirms cookie rotation and continued sign-in.
 - Manual failure path (Task 5) confirms cookies clear and signed-out UI renders.
 - TTL revert from both manual tasks is in the working tree (not committed) — restored to original 1h.
-- Worktree `worktree-token-refresh` is on three new commits ahead of the `main` it was branched from.
+- Branch `worktree-token-refresh` is on three new commits ahead of the `main` it was branched from.

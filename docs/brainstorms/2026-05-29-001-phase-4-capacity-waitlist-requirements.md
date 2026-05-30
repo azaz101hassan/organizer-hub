@@ -145,7 +145,7 @@ The pain shows up at exactly two moments: the moment a tier is technically sold 
 - An organizer running a small-venue event can set a per-tier cap on the dashboard, watch their queue light up as soon as the cap fills, approve a friend-of-the-band over cap after a one-step confirmation, and see the over-cap decision recorded in an audit trail — all without leaving the dashboard or touching Stripe.
 - A member who tries to claim a free ticket for a sold-out tier sees "request submitted" instead of a silent failure, and receives an email when the request is approved, rejected, or auto-rejected at event start.
 - A buyer can withdraw a pending request from their dashboard without admin involvement.
-- `ce-plan` can produce a dependency-ordered implementation plan from this doc without inventing the request lifecycle, the cap semantics, the admin actions, the mail content shape, or which Phase 3 surfaces are or are not modified.
+- A dependency-ordered implementation plan can be derived from this doc without inventing the request lifecycle, the cap semantics, the admin actions, the mail content shape, or which Phase 3 surfaces are or are not modified.
 
 ---
 
@@ -185,7 +185,7 @@ The pain shows up at exactly two moments: the moment a tier is technically sold 
 ## Dependencies / Assumptions
 
 - Phase 3's `Ticket`, `TicketType`, `BillingCustomer`, `WebhookEvent`, `syncStripeData`, and webhook controller are in place and operate as documented in `docs/plans/2026-05-21-001-feat-phase-3-stripe-billing-plan.md`. Phase 4 extends these surfaces; it does not modify them under cap.
-- A transactional email channel does NOT yet exist in the codebase (verified: no `@nestjs-modules/mailer`, `nodemailer`, or comparable dependency present). Phase 4 introduces it — provider selection (SMTP, Resend, Postmark, etc.) is a planning concern, not a brainstorm decision.
+- A transactional email channel does NOT yet exist in the codebase (verified: no `@nestjs-modules/mailer`, `nodemailer`, or comparable dependency present). Phase 4 introduces it — provider selection (SMTP, Resend, Postmark, etc.) is a planning concern, not a requirements-level decision.
 - A scheduled-job runner is required for R7. Phase 3 does not run one today. Planning chooses between an in-process cron (e.g., `@nestjs/schedule`), an out-of-process scheduler, or piggybacking on an existing event-loop tick.
 - The Phase 3 `Event` model is assumed to carry a non-null, single `startsAt` (no recurring or open-ended events); R7's auto-reject anchors on it. Planning to confirm against the Phase 3 schema before relying on it.
 - Browser clients reaching the SSE endpoint support `EventSource` (modern evergreen browsers do); production reverse-proxy configuration tolerates long-lived `text/event-stream` connections.

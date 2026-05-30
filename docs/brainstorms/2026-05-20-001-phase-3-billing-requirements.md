@@ -126,7 +126,7 @@ The closest behavioral comparable is cpac.org: a single brand running tiered-tic
 - An active member can claim a free covered ticket in a single in-app click — no Stripe redirect — and that ticket remains valid after a subsequent subscription cancellation or downgrade.
 - An organizer can configure a new event with multiple ticket tiers and toggle the members-excluded flag entirely through the dashboard with no engineering involvement.
 - Stripe webhook replays do not produce duplicate Tickets, duplicate Memberships, or double-applied subscription state — verified by replaying webhooks against a test environment.
-- `ce-plan` and `ce-work` can execute Phase 3 from this document without needing to invent product behavior, scope boundaries, or success criteria.
+- An implementation plan can be derived from this document without needing to invent product behavior, scope boundaries, or success criteria.
 
 ---
 
