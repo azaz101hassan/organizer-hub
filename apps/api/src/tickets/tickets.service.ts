@@ -8,10 +8,18 @@ import {
   EventStatus,
   Prisma,
   SubscriptionStatus,
+  TicketRequestIntent,
+  TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipsService } from '../memberships/memberships.service';
+import { WaitlistStream } from '../realtime/waitlist-stream';
+import {
+  createPendingRequest,
+  findOpenRequestForUser,
+} from '../ticket-requests/create-pending-request';
+import { atCap } from './capacity';
 
 export interface TicketView {
   id: string;
@@ -23,6 +31,12 @@ export interface TicketView {
   stripePaymentIntentId: string | null;
   issuedAt: Date;
 }
+
+// claimFree's discriminated result: an issued Ticket under cap, or a queued
+// request at cap (R3, AE2). Callers switch on `kind`.
+export type ClaimResult =
+  | { kind: 'ticket'; ticket: TicketView }
+  | { kind: 'request'; requestId: string; status: TicketRequestStatus };
 
 const CLAIM_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
   SubscriptionStatus.ACTIVE,
@@ -60,6 +74,7 @@ export class TicketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly memberships: MembershipsService,
+    private readonly stream: WaitlistStream,
   ) {}
 
   // claimFree — atomic free-ticket issuance for an active member.
@@ -73,7 +88,11 @@ export class TicketsService {
   // Serializable isolation so a concurrent claim or a members_excluded
   // flip mid-claim doesn't TOCTOU. P2002 catches the rare same-request-twice
   // race that slips past the in-tx findFirst.
-  async claimFree(userId: string, ticketTypeId: string): Promise<TicketView> {
+  async claimFree(
+    userId: string,
+    ticketTypeId: string,
+    contact?: { email?: string; name?: string },
+  ): Promise<ClaimResult> {
     const ticketType = await this.prisma.ticketType.findUnique({
       where: { id: ticketTypeId },
       include: {
@@ -81,6 +100,7 @@ export class TicketsService {
           select: {
             id: true,
             status: true,
+            organizationId: true,
             membersExcluded: true,
           },
         },
@@ -123,6 +143,42 @@ export class TicketsService {
       );
     }
 
+    // Eligibility passed — only now consider capacity (R5: an ineligible
+    // attempt got a Phase 3 error above and never reaches the queue). Already
+    // queued for this tier → return the existing request; at cap → queue a
+    // MEMBERSHIP_CLAIM request; under cap → fall through to the instant issue.
+    const open = await findOpenRequestForUser(
+      this.prisma,
+      userId,
+      ticketTypeId,
+    );
+    if (open) {
+      return { kind: 'request', requestId: open.id, status: open.status };
+    }
+
+    const issuedCount = await this.prisma.ticket.count({
+      where: { ticketTypeId },
+    });
+    if (atCap(ticketType, issuedCount)) {
+      const request = await createPendingRequest(
+        { prisma: this.prisma, stream: this.stream },
+        {
+          userId,
+          userEmail: contact?.email,
+          userName: contact?.name,
+          ticketTypeId,
+          eventId: ticketType.event.id,
+          orgId: ticketType.event.organizationId,
+          intent: TicketRequestIntent.MEMBERSHIP_CLAIM,
+        },
+      );
+      return {
+        kind: 'request',
+        requestId: request.id,
+        status: request.status,
+      };
+    }
+
     try {
       const created = await this.prisma.$transaction(
         async (tx) => {
@@ -156,7 +212,7 @@ export class TicketsService {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
-      return toView(created);
+      return { kind: 'ticket', ticket: toView(created) };
     } catch (err) {
       // The Serializable retry window is microseconds; a P2002 here means
       // two requests in flight raced past findFirst before either committed.

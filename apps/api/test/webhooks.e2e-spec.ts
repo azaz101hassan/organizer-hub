@@ -1,16 +1,21 @@
 import { INestApplication } from '@nestjs/common';
 import { App } from 'supertest/types';
 import request from 'supertest';
+import { firstValueFrom } from 'rxjs';
+import { filter, take } from 'rxjs/operators';
 import {
   EventStatus,
   MembershipTier,
   OrganizationRole,
   SubscriptionStatus,
+  TicketRequestIntent,
+  TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
 import { StripeWebhookVerifier } from './../src/billing/stripe-webhook.verifier';
 import { PrismaService } from './../src/prisma/prisma.service';
+import { WaitlistStream } from './../src/realtime/waitlist-stream';
 import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 import {
   FakeStripeClient,
@@ -94,8 +99,11 @@ describe('Stripe webhooks (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.refundLog.deleteMany({});
+    await prisma.ticketRequestAudit.deleteMany({});
     await prisma.webhookEvent.deleteMany({});
     await prisma.ticket.deleteMany({});
+    await prisma.ticketRequest.deleteMany({});
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     await prisma.membership.deleteMany({});
@@ -320,6 +328,7 @@ describe('Stripe webhooks (e2e)', () => {
   });
 
   describe('payment-mode checkout → Ticket issuance', () => {
+    let orgDbId: string;
     let eventDbId: string;
     let ticketTypeDbId: string;
 
@@ -334,6 +343,7 @@ describe('Stripe webhooks (e2e)', () => {
           members: { create: { userId: USER, role: OrganizationRole.OWNER } },
         },
       });
+      orgDbId = org.id;
       const ev = await prisma.event.create({
         data: {
           organizationId: org.id,
@@ -512,6 +522,248 @@ describe('Stripe webhooks (e2e)', () => {
 
       const refundCalls = fakeStripe.callsFor('refunds.create');
       expect(refundCalls).toHaveLength(1);
+    });
+
+    describe('waitlist PAID reconciliation (U7)', () => {
+      function postWebhook() {
+        return request(app.getHttpServer())
+          .post('/webhooks/stripe')
+          .set('stripe-signature', 't=1,v1=ok')
+          .set('content-type', 'application/json')
+          .send(Buffer.from('{}'));
+      }
+
+      // Seed an approved (by default) PAID request linked to a session id — the
+      // back-link that routes the webhook into the reconciliation path.
+      async function seedWaitlistRequest(opts: {
+        sessionId: string;
+        status?: TicketRequestStatus;
+        userId?: string;
+        startsAt?: Date;
+      }): Promise<string> {
+        if (opts.startsAt) {
+          await prisma.event.update({
+            where: { id: eventDbId },
+            data: { startsAt: opts.startsAt },
+          });
+        }
+        const req = await prisma.ticketRequest.create({
+          data: {
+            userId: opts.userId ?? USER,
+            ticketTypeId: ticketTypeDbId,
+            eventId: eventDbId,
+            intent: TicketRequestIntent.PAID,
+            status: opts.status ?? TicketRequestStatus.APPROVED,
+            stripeCheckoutSessionId: opts.sessionId,
+          },
+        });
+        return req.id;
+      }
+
+      function makeWaitlistCompletedEvent(opts: {
+        sessionId: string;
+        requestId: string;
+        userId?: string;
+      }): Stripe.Event {
+        return makeStripeEvent(
+          'checkout.session.completed',
+          {
+            id: opts.sessionId,
+            mode: 'payment',
+            customer: CUSTOMER,
+            client_reference_id: opts.userId ?? USER,
+            payment_intent: `pi_${opts.sessionId}`,
+            metadata: {
+              userId: opts.userId ?? USER,
+              eventId: eventDbId,
+              ticketTypeId: ticketTypeDbId,
+              ticketRequestId: opts.requestId,
+            },
+          },
+          `evt_${opts.sessionId}`,
+        );
+      }
+
+      it('issues a linked PAID Ticket for an APPROVED waitlist session', async () => {
+        const reqId = await seedWaitlistRequest({ sessionId: 'cs_wl_ok' });
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_ok',
+            requestId: reqId,
+          }),
+        );
+
+        await postWebhook().expect(200);
+
+        const ticket = await prisma.ticket.findUnique({
+          where: { ticketRequestId: reqId },
+        });
+        expect(ticket).toMatchObject({
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_wl_ok',
+        });
+        const reqRow = await prisma.ticketRequest.findUnique({
+          where: { id: reqId },
+        });
+        expect(reqRow?.status).toBe(TicketRequestStatus.APPROVED);
+        expect(fakeStripe.refunds).toHaveLength(0);
+      });
+
+      it('expires an APPROVED unpaid request on checkout.session.expired + emits (AE11)', async () => {
+        const reqId = await seedWaitlistRequest({ sessionId: 'cs_wl_exp' });
+        const hub = app.get(WaitlistStream);
+        const received = firstValueFrom(
+          hub.stream(orgDbId).pipe(
+            filter((e) => e.type === 'request.updated'),
+            take(1),
+          ),
+        );
+        fakeVerifier.queueEvent(
+          makeStripeEvent(
+            'checkout.session.expired',
+            { id: 'cs_wl_exp' },
+            'evt_cs_wl_exp',
+          ),
+        );
+
+        await postWebhook().expect(200);
+
+        const reqRow = await prisma.ticketRequest.findUnique({
+          where: { id: reqId },
+        });
+        expect(reqRow?.status).toBe(TicketRequestStatus.EXPIRED);
+        expect(
+          await prisma.ticket.findUnique({ where: { ticketRequestId: reqId } }),
+        ).toBeNull();
+        expect((await received).type).toBe('request.updated');
+      });
+
+      it('refunds + logs and issues nothing when the request was cancelled (AE11)', async () => {
+        const reqId = await seedWaitlistRequest({
+          sessionId: 'cs_wl_cancel',
+          status: TicketRequestStatus.CANCELLED_BY_USER,
+        });
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_cancel',
+            requestId: reqId,
+          }),
+        );
+
+        await postWebhook().expect(200);
+
+        expect(
+          await prisma.ticket.findUnique({ where: { ticketRequestId: reqId } }),
+        ).toBeNull();
+        expect(fakeStripe.refunds).toHaveLength(1);
+        expect(fakeStripe.refunds[0]).toMatchObject({
+          payment_intent: 'pi_cs_wl_cancel',
+          idempotencyKey: 'waitlist-refund-cs_wl_cancel',
+        });
+        const log = await prisma.refundLog.findUnique({
+          where: { stripeCheckoutSessionId: 'cs_wl_cancel' },
+        });
+        expect(log).toMatchObject({
+          stripePaymentIntentId: 'pi_cs_wl_cancel',
+          ticketRequestId: reqId,
+        });
+      });
+
+      it('refunds when the event already started (R24)', async () => {
+        const reqId = await seedWaitlistRequest({
+          sessionId: 'cs_wl_started',
+          startsAt: new Date('2020-01-01T00:00:00Z'),
+        });
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_started',
+            requestId: reqId,
+          }),
+        );
+
+        await postWebhook().expect(200);
+
+        expect(
+          await prisma.ticket.findUnique({ where: { ticketRequestId: reqId } }),
+        ).toBeNull();
+        expect(fakeStripe.refunds).toHaveLength(1);
+      });
+
+      it('refunds when the locked request userId differs from metadata.userId (sec-M1)', async () => {
+        const reqId = await seedWaitlistRequest({
+          sessionId: 'cs_wl_owner',
+          userId: 'other-user',
+        });
+        // metadata + client_reference_id both claim USER (so the pre-tx tamper
+        // check passes), but the locked request is owned by other-user.
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_owner',
+            requestId: reqId,
+            userId: USER,
+          }),
+        );
+
+        await postWebhook().expect(200);
+
+        expect(
+          await prisma.ticket.findUnique({ where: { ticketRequestId: reqId } }),
+        ).toBeNull();
+        expect(fakeStripe.refunds).toHaveLength(1);
+      });
+
+      it('dedupes a redelivered completion after the Ticket exists (AE16)', async () => {
+        const reqId = await seedWaitlistRequest({ sessionId: 'cs_wl_dup' });
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_dup',
+            requestId: reqId,
+          }),
+        );
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_dup',
+            requestId: reqId,
+          }),
+        );
+
+        await postWebhook().expect(200);
+        await postWebhook().expect(200);
+
+        const tickets = await prisma.ticket.findMany({
+          where: { ticketRequestId: reqId },
+        });
+        expect(tickets).toHaveLength(1);
+        expect(fakeStripe.refunds).toHaveLength(0);
+      });
+
+      it('refunds a dead-request completion at most once across redeliveries', async () => {
+        const reqId = await seedWaitlistRequest({
+          sessionId: 'cs_wl_dead_dup',
+          status: TicketRequestStatus.REJECTED,
+        });
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_dead_dup',
+            requestId: reqId,
+          }),
+        );
+        fakeVerifier.queueEvent(
+          makeWaitlistCompletedEvent({
+            sessionId: 'cs_wl_dead_dup',
+            requestId: reqId,
+          }),
+        );
+
+        await postWebhook().expect(200);
+        await postWebhook().expect(200);
+
+        expect(fakeStripe.refunds).toHaveLength(1);
+        const logs = await prisma.refundLog.findMany({
+          where: { stripeCheckoutSessionId: 'cs_wl_dead_dup' },
+        });
+        expect(logs).toHaveLength(1);
+      });
     });
   });
 });

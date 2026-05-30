@@ -17,4 +17,10 @@ export class UpdateTicketTypeDto {
   @Min(0)
   @Max(3)
   minTierLevel?: number;
+
+  // null clears the cap; a positive int sets it; omitted leaves it unchanged.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  cap?: number | null;
 }

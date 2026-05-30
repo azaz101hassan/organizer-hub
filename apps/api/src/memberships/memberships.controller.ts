@@ -2,7 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import {
-  type CoverageVerdict,
+  type CoverageResult,
   MembershipsService,
   type MembershipView,
 } from './memberships.service';
@@ -25,14 +25,15 @@ export class MembershipsController {
   }
 
   // GET /memberships/me/coverage?ticketTypeIds=t1,t2,...
-  // Returns the per-ticketType verdict (OWNED | CLAIMABLE | BUY) so the
-  // event detail page can pick the right primary CTA without re-deriving
-  // the membership rules client-side. Empty / missing query returns {}.
+  // Returns the per-ticketType coverage result (OWNED | AT_CAP | CLAIMABLE |
+  // BUY, plus the AT_CAP intake intent + any open request) so the event detail
+  // page can pick the right primary CTA without re-deriving the membership /
+  // capacity rules client-side. Empty / missing query returns {}.
   @Get('me/coverage')
   async coverage(
     @CurrentUser() user: AuthenticatedUser,
     @Query('ticketTypeIds') ticketTypeIds?: string,
-  ): Promise<Record<string, CoverageVerdict>> {
+  ): Promise<Record<string, CoverageResult>> {
     const ids = (ticketTypeIds ?? '')
       .split(',')
       .map((s) => s.trim())

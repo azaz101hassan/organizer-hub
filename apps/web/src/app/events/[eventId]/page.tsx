@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ApiError, apiFetch, publicApiFetch, UnauthorizedError } from "@/lib/api/client";
 import { readSession } from "@/lib/api/session";
 import type {
-  CoverageVerdict,
+  CoverageResult,
   PublicEventView,
   TicketTypePublicView,
 } from "@/lib/api/types";
@@ -41,13 +41,13 @@ export default async function PublicEventDetailPage({
 
   // Coverage is per-user — only fetch if signed in. On any failure (token
   // expired, api blip) the verdicts default to BUY so the page still renders;
-  // the api re-checks on claim, so showing Buy when CLAIMABLE was possible
-  // only costs the user a click to refresh.
-  let verdicts: Record<string, CoverageVerdict> = {};
+  // the api re-checks on claim/intake, so showing Buy when CLAIMABLE/AT_CAP was
+  // possible only costs the user a click to refresh.
+  let coverage: Record<string, CoverageResult> = {};
   if (signedIn && ticketTypes.length > 0) {
     const ids = ticketTypes.map((t) => t.id).join(",");
     try {
-      verdicts = await apiFetch<Record<string, CoverageVerdict>>(
+      coverage = await apiFetch<Record<string, CoverageResult>>(
         `/memberships/me/coverage?ticketTypeIds=${encodeURIComponent(ids)}`,
       );
     } catch (err) {
@@ -143,7 +143,7 @@ export default async function PublicEventDetailPage({
                   key={tt.id}
                   eventId={eventId}
                   ticketType={tt}
-                  verdict={verdicts[tt.id] ?? "BUY"}
+                  coverage={coverage[tt.id] ?? { verdict: "BUY" }}
                   signedIn={signedIn}
                 />
               ))}

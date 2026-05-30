@@ -18,4 +18,12 @@ export class CreateTicketTypeDto {
   @Min(0)
   @Max(3)
   minTierLevel?: number;
+
+  // Optional soft cap. null/omitted = no cap (Phase 3 behavior). @Min(1)
+  // rejects 0 and negatives (R17); an explicit null is allowed through to
+  // clear the cap (@IsOptional skips validation for null/undefined).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  cap?: number | null;
 }

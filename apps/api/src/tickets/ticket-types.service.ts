@@ -15,6 +15,12 @@ export interface TicketTypeView {
   name: string;
   priceCents: number;
   minTierLevel: number;
+  cap: number | null;
+  // Derived count of issued Tickets for this tier. Surfaced so the editor can
+  // warn when a newly-set cap is below the count already issued (R17). Always
+  // count(Ticket) — never a denormalized column — to stay honest under the
+  // webhook issuance path.
+  issuedCount: number;
   stripeProductId: string;
   stripePriceId: string;
   createdAt: Date;
@@ -34,19 +40,22 @@ interface DbTicketType {
   name: string;
   priceCents: number;
   minTierLevel: number;
+  cap: number | null;
   stripeProductId: string;
   stripePriceId: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-function toView(t: DbTicketType): TicketTypeView {
+function toView(t: DbTicketType, issuedCount: number): TicketTypeView {
   return {
     id: t.id,
     eventId: t.eventId,
     name: t.name,
     priceCents: t.priceCents,
     minTierLevel: t.minTierLevel,
+    cap: t.cap,
+    issuedCount,
     stripeProductId: t.stripeProductId,
     stripePriceId: t.stripePriceId,
     createdAt: t.createdAt,
@@ -98,7 +107,29 @@ export class TicketTypesService {
       where: { eventId },
       orderBy: { createdAt: 'asc' },
     });
-    return rows.map(toView);
+    const counts = await this.issuedCountsFor(rows.map((r) => r.id));
+    return rows.map((r) => toView(r, counts.get(r.id) ?? 0));
+  }
+
+  // Count of issued Tickets for one tier. The shared input to the atCap()
+  // predicate (capacity.ts) on the paid / claim / public-affordance paths.
+  async computeIssuedCount(ticketTypeId: string): Promise<number> {
+    return this.prisma.ticket.count({ where: { ticketTypeId } });
+  }
+
+  // Batched issued counts for a list render, so listForEvent stays one extra
+  // query rather than N. Tiers with zero issued tickets are simply absent from
+  // the result and default to 0 at the call site.
+  private async issuedCountsFor(
+    ticketTypeIds: string[],
+  ): Promise<Map<string, number>> {
+    if (ticketTypeIds.length === 0) return new Map();
+    const groups = await this.prisma.ticket.groupBy({
+      by: ['ticketTypeId'],
+      where: { ticketTypeId: { in: ticketTypeIds } },
+      _count: { _all: true },
+    });
+    return new Map(groups.map((g) => [g.ticketTypeId, g._count._all]));
   }
 
   async listPublic(eventId: string): Promise<TicketTypePublicView[]> {
@@ -115,7 +146,12 @@ export class TicketTypesService {
   async create(
     orgId: string,
     eventId: string,
-    input: { name: string; priceCents: number; minTierLevel?: number },
+    input: {
+      name: string;
+      priceCents: number;
+      minTierLevel?: number;
+      cap?: number | null;
+    },
   ): Promise<TicketTypeView> {
     const event = await this.assertEventInOrg(orgId, eventId);
 
@@ -145,11 +181,13 @@ export class TicketTypesService {
           name: input.name,
           priceCents: input.priceCents,
           minTierLevel: input.minTierLevel ?? 0,
+          cap: input.cap ?? null,
           stripeProductId: product.id,
           stripePriceId: price.id,
         },
       });
-      return toView(row);
+      // A freshly created tier has no issued tickets yet.
+      return toView(row, 0);
     } catch (err) {
       this.logger.warn(
         `Stripe Product ${product.id} + Price ${price.id} were created but the local TicketType insert failed; manual cleanup may be needed`,
@@ -162,7 +200,12 @@ export class TicketTypesService {
     orgId: string,
     eventId: string,
     ticketTypeId: string,
-    patch: { name?: string; priceCents?: number; minTierLevel?: number },
+    patch: {
+      name?: string;
+      priceCents?: number;
+      minTierLevel?: number;
+      cap?: number | null;
+    },
   ): Promise<TicketTypeView> {
     await this.assertEventInOrg(orgId, eventId);
     const current = await this.prisma.ticketType.findFirst({
@@ -209,10 +252,15 @@ export class TicketTypesService {
         name: patch.name,
         priceCents: patch.priceCents,
         minTierLevel: patch.minTierLevel,
+        // undefined leaves the cap unchanged; null clears it; a number sets it.
+        // Setting cap below issuedCount is permitted (R17) — the view exposes
+        // issuedCount so the editor can warn; tickets are never revoked.
+        cap: patch.cap,
         stripePriceId: nextStripePriceId,
       },
     });
-    return toView(updated);
+    const issuedCount = await this.computeIssuedCount(ticketTypeId);
+    return toView(updated, issuedCount);
   }
 
   async delete(

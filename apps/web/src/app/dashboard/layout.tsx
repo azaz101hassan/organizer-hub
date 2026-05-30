@@ -27,6 +27,12 @@ export default async function DashboardLayout({
             >
               Membership
             </Link>
+            <Link
+              href="/dashboard/requests"
+              className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+            >
+              Requests
+            </Link>
             <span className="hidden sm:inline">
               {session.email ?? session.sub}
             </span>

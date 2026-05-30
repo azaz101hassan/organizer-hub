@@ -7,6 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventStatus, Prisma, TicketSource } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
+import { atCap } from '../tickets/capacity';
+import { CheckoutSessionFactory } from './checkout-session.factory';
 import { StripeClient } from './stripe.client';
 
 export interface BillingCustomerView {
@@ -19,6 +21,14 @@ export interface CheckoutSessionView {
   url: string;
 }
 
+// Result of the pre-session intake gates: enough for the controller to branch
+// into a Phase 3 checkout (under cap) or a waitlist request (at cap) without
+// BillingService having to know about ticket-requests.
+export interface TicketIntakeEvaluation {
+  ticketType: { id: string; eventId: string; organizationId: string };
+  atCap: boolean;
+}
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
@@ -27,6 +37,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
     private readonly config: ConfigService,
+    private readonly checkoutSessions: CheckoutSessionFactory,
   ) {}
 
   // Lazy Stripe Customer creation. First-checkout flow calls this; on cold
@@ -145,6 +156,55 @@ export class BillingService {
     );
   }
 
+  // Run the paid-intake gates WITHOUT minting a session, and report whether the
+  // tier is at cap. Mirrors createTicketCheckoutSession's gate ordering (404 /
+  // not-PUBLISHED hide-existence -> existing-PAID 409) so the controller can
+  // run gates once, decide checkout vs. waitlist on `atCap`, and only then mint
+  // a session. The shared atCap() predicate keeps the "is it full?" decision
+  // from drifting across the paid / claim / public surfaces.
+  async evaluateTicketIntake(
+    userSub: string,
+    ticketTypeId: string,
+  ): Promise<TicketIntakeEvaluation> {
+    const ticketType = await this.prisma.ticketType.findUnique({
+      where: { id: ticketTypeId },
+      include: {
+        event: { select: { id: true, status: true, organizationId: true } },
+      },
+    });
+    if (!ticketType) throw new NotFoundException();
+    if (ticketType.event.status !== EventStatus.PUBLISHED) {
+      throw new NotFoundException();
+    }
+
+    const existing = await this.prisma.ticket.findFirst({
+      where: {
+        userId: userSub,
+        eventId: ticketType.event.id,
+        ticketTypeId,
+        source: TicketSource.PAID,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'You already have a ticket for this event tier.',
+      );
+    }
+
+    const issuedCount = await this.prisma.ticket.count({
+      where: { ticketTypeId },
+    });
+    return {
+      ticketType: {
+        id: ticketType.id,
+        eventId: ticketType.event.id,
+        organizationId: ticketType.event.organizationId,
+      },
+      atCap: atCap(ticketType, issuedCount),
+    };
+  }
+
   // Build a Stripe Checkout Session in PAYMENT mode for a single TicketType.
   // Pre-flight:
   //   - 404 if the TicketType, the parent Event, or a published parent
@@ -189,32 +249,17 @@ export class BillingService {
     }
 
     const customer = await this.getOrCreateStripeCustomer(userSub, userEmail);
-    const webOrigin =
-      this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
 
-    const session = await this.stripeClient.stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer: customer.stripeCustomerId,
-      client_reference_id: userSub,
-      // Stripe Checkout caps metadata values at 500 chars each — these are
-      // all short ids so we're well under. The webhook handler reads
-      // userId from metadata AND verifies it against client_reference_id
-      // as a tamper check.
-      metadata: {
-        userId: userSub,
-        eventId: ticketType.event.id,
-        ticketTypeId,
-      },
-      line_items: [{ price: ticketType.stripePriceId, quantity: 1 }],
-      success_url: `${webOrigin}/events/${ticketType.event.id}?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${webOrigin}/events/${ticketType.event.id}?purchase=canceled`,
+    // Under-cap direct purchase: no expiry, no request back-link. The webhook
+    // reads userId from metadata AND verifies it against client_reference_id
+    // (tamper check); a session with no TicketRequest back-link takes the
+    // unconditional Phase 3 issue path.
+    return this.checkoutSessions.mintTicketSession({
+      userSub,
+      customerId: customer.stripeCustomerId,
+      eventId: ticketType.event.id,
+      ticketTypeId,
+      stripePriceId: ticketType.stripePriceId,
     });
-
-    if (!session.url) {
-      throw new Error(
-        `Stripe Checkout Session ${session.id} returned without a url`,
-      );
-    }
-    return { id: session.id, url: session.url };
   }
 }

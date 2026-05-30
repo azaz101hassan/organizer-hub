@@ -53,12 +53,15 @@ export class StripeWebhookController {
     // below never runs.
     const event = this.verifier.construct(rawBody, signature);
 
-    // Process-first-then-INSERT: run the side effect, then record the
-    // dedupe row inside the same handler. Stripe redelivery hits the
-    // INSERT first (because the side effect is idempotent in syncStripeData)
-    // and the duplicate ack returns 200 without re-running anything.
+    // Process-first-then-INSERT: run the side effect, then record the dedupe
+    // row. Stripe redelivery re-runs the idempotent side effect, then this
+    // INSERT hits P2002 and the duplicate ack returns 200. The waitlist payment
+    // branches (issue / dead-request refund) record the dedupe row themselves —
+    // inside the issuance tx, or after the refund — and signal `recorded` so we
+    // don't write it twice.
+    let result;
     try {
-      await this.stripeWebhookService.handle(event);
+      result = await this.stripeWebhookService.handle(event);
     } catch (err) {
       // Bubble up so Stripe retries — but log the underlying cause first.
       this.logger.error(
@@ -69,15 +72,17 @@ export class StripeWebhookController {
       throw err;
     }
 
-    const result = await recordProcessedWebhookEvent(
-      this.prisma,
-      event.id,
-      event.type,
-    );
-    if (result === 'duplicate') {
-      this.logger.log(
-        `Acked duplicate webhook ${event.id} (${event.type}) without side effects`,
+    if (!result.recorded) {
+      const dedupe = await recordProcessedWebhookEvent(
+        this.prisma,
+        event.id,
+        event.type,
       );
+      if (dedupe === 'duplicate') {
+        this.logger.log(
+          `Acked duplicate webhook ${event.id} (${event.type}) without side effects`,
+        );
+      }
     }
 
     return { received: true };

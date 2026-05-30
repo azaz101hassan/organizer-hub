@@ -6,6 +6,8 @@ import {
   MembershipTier,
   OrganizationRole,
   SubscriptionStatus,
+  TicketRequestIntent,
+  TicketRequestStatus,
   TicketSource,
 } from '@organizer-hub/db/api';
 import { StripeClient } from './../src/billing/stripe.client';
@@ -19,7 +21,12 @@ import {
 import { FakeStripeClient } from './helpers/fake-stripe';
 import { jsonBody } from './helpers/http';
 
-type CoverageMap = Record<string, 'CLAIMABLE' | 'BUY' | 'OWNED'>;
+interface CoverageResult {
+  verdict: 'OWNED' | 'AT_CAP' | 'CLAIMABLE' | 'BUY';
+  requestIntent?: 'PAID' | 'MEMBERSHIP_CLAIM';
+  openRequestId?: string | null;
+}
+type CoverageMap = Record<string, CoverageResult>;
 
 const USER = 'user-claim-1';
 const CUSTOMER = 'cus_claim_1';
@@ -40,6 +47,7 @@ async function seedEventWithTicketType(
     ticketName: string;
     priceCents: number;
     minTierLevel: number;
+    cap?: number | null;
   },
 ): Promise<TicketTypeFixture> {
   const ev = await prisma.event.create({
@@ -63,6 +71,7 @@ async function seedEventWithTicketType(
       name: args.ticketName,
       priceCents: args.priceCents,
       minTierLevel: args.minTierLevel,
+      cap: args.cap ?? null,
       stripeProductId: `prod_${args.eventSlug}_${args.ticketName}`,
       stripePriceId: `price_${args.eventSlug}_${args.ticketName}`,
     },
@@ -121,7 +130,9 @@ describe('Ticket claim (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.ticketRequestAudit.deleteMany({});
     await prisma.ticket.deleteMany({});
+    await prisma.ticketRequest.deleteMany({});
     await prisma.ticketType.deleteMany({});
     await prisma.organization.deleteMany({});
     await prisma.membership.deleteMany({});
@@ -165,12 +176,15 @@ describe('Ticket claim (e2e)', () => {
         .expect(201);
 
       expect(res.body).toMatchObject({
-        userId: USER,
-        eventId: tt.eventId,
-        ticketTypeId: tt.id,
-        source: TicketSource.MEMBERSHIP_CLAIM,
-        stripeCheckoutSessionId: null,
-        stripePaymentIntentId: null,
+        kind: 'ticket',
+        ticket: {
+          userId: USER,
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+          stripeCheckoutSessionId: null,
+          stripePaymentIntentId: null,
+        },
       });
     });
 
@@ -361,6 +375,100 @@ describe('Ticket claim (e2e)', () => {
         .send({})
         .expect(400);
     });
+
+    it('at cap → MEMBERSHIP_CLAIM request instead of an instant Ticket (R3, AE2)', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.GOLD,
+        tierLevel: 3,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'capped-claim',
+        ticketName: 'VIP',
+        priceCents: 0,
+        minTierLevel: 3,
+      });
+      // Fill to cap with another member's claim so USER's own duplicate-claim
+      // gate still passes and only the cap blocks the instant issue.
+      await prisma.ticketType.update({
+        where: { id: tt.id },
+        data: { cap: 1 },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-member',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/tickets/claim')
+        .send({ ticketTypeId: tt.id })
+        .expect(201);
+
+      const body = jsonBody<{
+        kind: string;
+        requestId: string;
+        status: string;
+      }>(res);
+      expect(body.kind).toBe('request');
+      expect(body.status).toBe(TicketRequestStatus.PENDING);
+
+      const row = await prisma.ticketRequest.findUnique({
+        where: { id: body.requestId },
+      });
+      expect(row).toMatchObject({
+        userId: USER,
+        ticketTypeId: tt.id,
+        intent: TicketRequestIntent.MEMBERSHIP_CLAIM,
+        status: TicketRequestStatus.PENDING,
+      });
+      // No instant Ticket for USER.
+      const userTickets = await prisma.ticket.count({
+        where: { userId: USER, ticketTypeId: tt.id },
+      });
+      expect(userTickets).toBe(0);
+    });
+
+    it('ineligible (below-tier) at cap → 409 and NO request created (R5, AE2)', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.SILVER,
+        tierLevel: 2,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'capped-ineligible',
+        ticketName: 'VIP',
+        priceCents: 0,
+        minTierLevel: 3,
+      });
+      await prisma.ticketType.update({
+        where: { id: tt.id },
+        data: { cap: 1 },
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-member',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      await request(app.getHttpServer())
+        .post('/tickets/claim')
+        .send({ ticketTypeId: tt.id })
+        .expect(409);
+
+      const requests = await prisma.ticketRequest.count({
+        where: { userId: USER, ticketTypeId: tt.id },
+      });
+      expect(requests).toBe(0);
+    });
   });
 
   describe('GET /memberships/me/coverage', () => {
@@ -410,10 +518,10 @@ describe('Ticket claim (e2e)', () => {
         .expect(200);
 
       const body = jsonBody<CoverageMap>(res);
-      expect(body[claimable.id]).toBe('CLAIMABLE');
-      expect(body[buy.id]).toBe('BUY');
-      expect(body[owned.id]).toBe('OWNED');
-      expect(body['unknown']).toBe('BUY');
+      expect(body[claimable.id].verdict).toBe('CLAIMABLE');
+      expect(body[buy.id].verdict).toBe('BUY');
+      expect(body[owned.id].verdict).toBe('OWNED');
+      expect(body['unknown'].verdict).toBe('BUY');
     });
 
     it('returns an empty object when no ticketTypeIds are passed', async () => {
@@ -441,7 +549,132 @@ describe('Ticket claim (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
         .expect(200);
-      expect(jsonBody<CoverageMap>(res)[tt.id]).toBe('BUY');
+      expect(jsonBody<CoverageMap>(res)[tt.id].verdict).toBe('BUY');
+    });
+
+    it('resolves AT_CAP (PAID intent) for a full paid tier with no open request (R20)', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'paid-full',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      // Someone else holds the only seat → the tier is at cap for USER.
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_paid_full',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.requestIntent).toBe('PAID');
+      expect(result.openRequestId).toBeNull();
+    });
+
+    it('resolves AT_CAP (MEMBERSHIP_CLAIM intent) for a full member tier', async () => {
+      await seedMembership(prisma, {
+        tier: MembershipTier.GOLD,
+        tierLevel: 3,
+      });
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'member-full',
+        ticketName: 'Gold',
+        priceCents: 0,
+        minTierLevel: 3,
+        cap: 1,
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.MEMBERSHIP_CLAIM,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.requestIntent).toBe('MEMBERSHIP_CLAIM');
+    });
+
+    it('OWNED still wins over AT_CAP when the caller already holds a ticket', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'owned-full',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      // The caller's own ticket is the one that fills the cap.
+      await prisma.ticket.create({
+        data: {
+          userId: USER,
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_owned_full',
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      expect(jsonBody<CoverageMap>(res)[tt.id].verdict).toBe('OWNED');
+    });
+
+    it('AT_CAP carries openRequestId when the caller already has an open request', async () => {
+      const tt = await seedEventWithTicketType(prisma, {
+        orgId,
+        creator: USER,
+        eventSlug: 'paid-full-pending',
+        ticketName: 'GA',
+        priceCents: 5000,
+        minTierLevel: 0,
+        cap: 1,
+      });
+      await prisma.ticket.create({
+        data: {
+          userId: 'other-holder',
+          eventId: tt.eventId,
+          ticketTypeId: tt.id,
+          source: TicketSource.PAID,
+          stripeCheckoutSessionId: 'cs_paid_full_pending',
+        },
+      });
+      const open = await prisma.ticketRequest.create({
+        data: {
+          userId: USER,
+          ticketTypeId: tt.id,
+          eventId: tt.eventId,
+          intent: TicketRequestIntent.PAID,
+          status: TicketRequestStatus.PENDING,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/memberships/me/coverage?ticketTypeIds=${tt.id}`)
+        .expect(200);
+      const result = jsonBody<CoverageMap>(res)[tt.id];
+      expect(result.verdict).toBe('AT_CAP');
+      expect(result.openRequestId).toBe(open.id);
     });
   });
 });

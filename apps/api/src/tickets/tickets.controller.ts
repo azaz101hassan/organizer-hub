@@ -9,7 +9,7 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { ClaimTicketDto } from './dto/claim-ticket.dto';
-import { TicketsService, type TicketView } from './tickets.service';
+import { TicketsService, type ClaimResult } from './tickets.service';
 
 // Free-claim surface — paid ticket purchases go through
 // /billing/checkout/ticket in the billing module. Splitting the two HTTP
@@ -25,7 +25,10 @@ export class TicketsController {
   claim(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ClaimTicketDto,
-  ): Promise<TicketView> {
-    return this.tickets.claimFree(user.sub, dto.ticketTypeId);
+  ): Promise<ClaimResult> {
+    return this.tickets.claimFree(user.sub, dto.ticketTypeId, {
+      email: user.email,
+      name: user.name,
+    });
   }
 }

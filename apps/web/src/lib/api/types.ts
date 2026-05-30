@@ -87,6 +87,8 @@ export interface TicketTypeView {
   name: string;
   priceCents: number;
   minTierLevel: number;
+  cap: number | null;
+  issuedCount: number;
   stripeProductId: string;
   stripePriceId: string;
   createdAt: string;
@@ -111,4 +113,90 @@ export interface TicketView {
   issuedAt: string;
 }
 
-export type CoverageVerdict = "OWNED" | "CLAIMABLE" | "BUY";
+export type CoverageVerdict = "OWNED" | "AT_CAP" | "CLAIMABLE" | "BUY";
+
+export type TicketRequestIntent = "PAID" | "MEMBERSHIP_CLAIM";
+
+// Per-TicketType coverage result from GET /memberships/me/coverage. For AT_CAP
+// it carries the intake intent (which endpoint "Request a spot" posts to) and
+// the caller's existing open request id, if any (→ "Request pending" deep-link).
+export interface CoverageResult {
+  verdict: CoverageVerdict;
+  requestIntent?: TicketRequestIntent;
+  openRequestId?: string | null;
+}
+
+export type TicketRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "CANCELLED_BY_USER"
+  | "EXPIRED";
+
+// Requester-facing request view (GET /requests, /requests/:id). hasTicket
+// distinguishes APPROVED-awaiting-payment (PAID, false) from APPROVED-with-
+// ticket (true).
+export interface RequesterTicketRequestView {
+  id: string;
+  userId: string;
+  ticketTypeId: string;
+  eventId: string;
+  intent: TicketRequestIntent;
+  status: TicketRequestStatus;
+  stripeCheckoutSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  event: { id: string; title: string; startsAt: string };
+  ticketTypeName: string;
+  ticketTypePriceCents: number;
+  hasTicket: boolean;
+}
+
+// GET /requests/:id/payment-link — the live Checkout link + expiry for an
+// APPROVED-awaiting-payment PAID request. url is null once Stripe expires it.
+export interface PaymentLinkView {
+  url: string | null;
+  expiresAt: string | null;
+}
+
+// Admin queue row (GET /orgs/:orgId/requests). issuedCount + cap drive the
+// over-cap approve confirm.
+export interface AdminTicketRequestView {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  userName: string | null;
+  intent: TicketRequestIntent;
+  status: TicketRequestStatus;
+  createdAt: string;
+  event: { id: string; title: string };
+  ticketType: { id: string; name: string; cap: number | null };
+  issuedCount: number;
+}
+
+export interface AdminQueuePage {
+  items: AdminTicketRequestView[];
+  nextCursor: string | null;
+}
+
+// What rides the WaitlistStream SSE channel. `data` is intentionally loose —
+// request.created carries a base view; updated/removed often carry only
+// { id, status }. The admin queue treats created as "refetch" and
+// updated/removed as "drop row id" (any transition leaves the PENDING queue).
+export interface WaitlistStreamEvent {
+  type: "request.created" | "request.updated" | "request.removed";
+  id: string;
+  data: { id: string; status?: TicketRequestStatus };
+}
+
+// Discriminated response of POST /billing/checkout/ticket: a Stripe Checkout
+// URL under cap, or a queued waitlist request at cap. Switch on `kind`.
+export type TicketCheckoutResult =
+  | { kind: "checkout"; url: string }
+  | { kind: "request"; requestId: string; status: TicketRequestStatus };
+
+// Discriminated response of POST /tickets/claim: an issued ticket under cap, or
+// a queued MEMBERSHIP_CLAIM request at cap.
+export type ClaimResult =
+  | { kind: "ticket"; ticket: TicketView }
+  | { kind: "request"; requestId: string; status: TicketRequestStatus };
