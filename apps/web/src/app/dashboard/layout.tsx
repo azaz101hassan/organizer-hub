@@ -7,7 +7,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh" });
+  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
   if (!session) redirect("/auth/login");
 
   return (

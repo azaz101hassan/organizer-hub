@@ -11,8 +11,9 @@ export interface Session {
 }
 
 export type SessionCookieNames = {
-  session: string; // e.g. "oh_member_session"
-  refresh: string; // e.g. "oh_member_refresh"
+  session: string;     // e.g. "oh_member_session"
+  refresh: string;     // e.g. "oh_member_refresh"
+  accessToken: string; // e.g. "oh_member_access_token"
 };
 
 interface IdTokenClaims {
@@ -25,7 +26,7 @@ interface IdTokenClaims {
 export async function readSession(names: SessionCookieNames): Promise<Session | null> {
   const store = await cookies();
   const idToken = store.get(names.session)?.value;
-  const accessToken = store.get("access_token")?.value;
+  const accessToken = store.get(names.accessToken)?.value;
   if (!idToken || !accessToken) return null;
 
   let claims: IdTokenClaims;

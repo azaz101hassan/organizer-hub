@@ -18,8 +18,8 @@ export async function GET(req: NextRequest): Promise<Response> {
     return new Response(`OIDC error: ${errorParam}`, { status: 400 });
   }
 
-  const storedState = req.cookies.get("oidc_state")?.value;
-  const verifier = req.cookies.get("oidc_verifier")?.value;
+  const storedState = req.cookies.get("oh_member_state")?.value;
+  const verifier = req.cookies.get("oh_member_pkce")?.value;
   if (!code || !state || !storedState || state !== storedState || !verifier) {
     return new Response("invalid auth callback (state mismatch or missing verifier)", { status: 400 });
   }
@@ -46,20 +46,20 @@ export async function GET(req: NextRequest): Promise<Response> {
   const res = NextResponse.redirect(new URL("/", req.url));
   // Phase 1 MVP: stash id_token in an httpOnly cookie. Phase 2 will move to a
   // server-side session store and verify signature against JWKS on each read.
-  res.cookies.set("session", tokens.id_token, {
+  res.cookies.set("oh_member_session", tokens.id_token, {
     httpOnly: true,
     path: "/",
     sameSite: "lax",
     maxAge: tokens.expires_in ?? 3600,
   });
-  res.cookies.set("access_token", tokens.access_token, {
+  res.cookies.set("oh_member_access_token", tokens.access_token, {
     httpOnly: true,
     path: "/",
     sameSite: "lax",
     maxAge: tokens.expires_in ?? 3600,
   });
   if (tokens.refresh_token) {
-    res.cookies.set("refresh_token", tokens.refresh_token, {
+    res.cookies.set("oh_member_refresh", tokens.refresh_token, {
       httpOnly: true,
       path: "/",
       sameSite: "lax",
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     });
   }
   // clean up transient cookies
-  res.cookies.delete("oidc_state");
-  res.cookies.delete("oidc_verifier");
+  res.cookies.delete("oh_member_state");
+  res.cookies.delete("oh_member_pkce");
   return res;
 }

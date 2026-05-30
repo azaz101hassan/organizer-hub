@@ -26,7 +26,7 @@ export async function GET(): Promise<Response> {
     sameSite: "lax" as const,
     maxAge: 600, // 10 minutes — only used during the redirect roundtrip
   };
-  res.cookies.set("oidc_state", state, cookieOpts);
-  res.cookies.set("oidc_verifier", verifier, cookieOpts);
+  res.cookies.set("oh_member_state", state, cookieOpts);
+  res.cookies.set("oh_member_pkce", verifier, cookieOpts);
   return res;
 }

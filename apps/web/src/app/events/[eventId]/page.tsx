@@ -41,7 +41,7 @@ export default async function PublicEventDetailPage({
     throw err;
   }
 
-  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh" });
+  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
   const signedIn = session !== null;
 
   // Coverage is per-user — only fetch if signed in. On any failure (token
