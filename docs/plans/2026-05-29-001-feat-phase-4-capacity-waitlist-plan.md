@@ -1,7 +1,7 @@
 ---
 title: "feat: Phase 4 — Per-TicketType capacity + admin-moderated waitlist"
 type: feat
-status: active
+status: completed
 date: 2026-05-29
 deepened: 2026-05-29
 origin: docs/brainstorms/2026-05-29-001-phase-4-capacity-waitlist-requirements.md
