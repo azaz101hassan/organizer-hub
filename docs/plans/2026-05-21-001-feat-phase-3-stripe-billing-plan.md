@@ -3,7 +3,7 @@ title: "feat: Phase 3 — Stripe billing (tiered tickets + memberships)"
 type: feat
 status: completed
 date: 2026-05-21
-origin: docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md
+origin: docs/requirements/2026-05-20-001-phase-3-billing-requirements.md
 ---
 
 # feat: Phase 3 — Stripe billing (tiered tickets + memberships)
@@ -16,7 +16,7 @@ Layer Stripe-powered billing onto OrganizerHub as a thin mirror ledger: Stripe o
 
 ## Problem Frame
 
-At the end of Phase 2 OrganizerHub has events end-to-end but no money path — every "Get tickets" surface is a placeholder. The requirements document at `docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md` settled the product shape (platform-wide tiered memberships + tiered one-time tickets + per-event coverage override + platform-collected merchant of record) and the open questions left for planning are all technical: how to layer Stripe onto the existing NestJS + Next.js + Prisma stack without inventing a parallel transactional system.
+At the end of Phase 2 OrganizerHub has events end-to-end but no money path — every "Get tickets" surface is a placeholder. The requirements document at `docs/requirements/2026-05-20-001-phase-3-billing-requirements.md` settled the product shape (platform-wide tiered memberships + tiered one-time tickets + per-event coverage override + platform-collected merchant of record) and the open questions left for planning are all technical: how to layer Stripe onto the existing NestJS + Next.js + Prisma stack without inventing a parallel transactional system.
 
 ---
 
@@ -828,7 +828,7 @@ These specifications are authoritative for U5 and U9. The implementer follows th
 | Stripe-SDK upgrades silently change behavior if `apiVersion` isn't pinned | `StripeClient` constructor pins `apiVersion: '2026-04-22.dahlia'`; SDK version pinned at `^22.1.1` in `package.json`. Documented in `docs/phase-3-stripe-setup.md`. |
 | No async work infrastructure → webhook handlers must complete synchronously, capping their work | Each handler does one Stripe API call (`syncStripeData`) + one Prisma upsert. P95 well under Stripe's 30s timeout. If a future event type needs more work, that's the trigger to introduce a queue (Phase 4+). |
 | Local-dev forgetting `stripe listen` will silently fail webhooks | `docs/phase-3-stripe-setup.md` includes a "verify webhooks are arriving" sanity check. Smoke checklist includes a `stripe trigger checkout.session.completed` step. |
-| The `(userId, eventId, ticketTypeId)` unique constraint forbids holding two of the same tier — might be wrong for some real organizer use cases | Accepted for Phase 3 — current product brainstorm doesn't ask for multi-quantity. Revisit when org demand surfaces (Phase 4+ might add `quantity: Int` and relax the constraint). |
+| The `(userId, eventId, ticketTypeId)` unique constraint forbids holding two of the same tier — might be wrong for some real organizer use cases | Accepted for Phase 3 — current product requirements don't ask for multi-quantity. Revisit when org demand surfaces (Phase 4+ might add `quantity: Int` and relax the constraint). |
 | Anonymous purchase deferred — risk of organizer pushback if they expected guest checkout | Documented as scope boundary; can be added in Phase 4+ without schema changes (just a new endpoint accepting `email` for the Customer creation). |
 
 ---
@@ -873,7 +873,7 @@ Phase 3 lands in 10 implementation units across four logical phases. Each unit i
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md](docs/brainstorms/2026-05-20-001-phase-3-billing-requirements.md)
+- **Origin document:** [docs/requirements/2026-05-20-001-phase-3-billing-requirements.md](docs/requirements/2026-05-20-001-phase-3-billing-requirements.md)
 - **Phase 2 baseline:** commit `c53a55d` — `docs: wrap up Phase 2 with what-ships and browser smoke checklist`
 - **Stripe webhook signature verification:** https://docs.stripe.com/webhooks/signature
 - **Stripe Checkout subscription mode:** https://docs.stripe.com/payments/checkout/build-subscriptions

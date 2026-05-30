@@ -4,7 +4,7 @@ type: feat
 status: completed
 date: 2026-05-29
 deepened: 2026-05-29
-origin: docs/brainstorms/2026-05-29-001-phase-4-capacity-waitlist-requirements.md
+origin: docs/requirements/2026-05-29-001-phase-4-capacity-waitlist-requirements.md
 ---
 
 # feat: Phase 4 — Per-TicketType capacity + admin-moderated waitlist
@@ -877,7 +877,7 @@ graph TB
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-05-29-001-phase-4-capacity-waitlist-requirements.md](docs/brainstorms/2026-05-29-001-phase-4-capacity-waitlist-requirements.md)
+- **Origin document:** [docs/requirements/2026-05-29-001-phase-4-capacity-waitlist-requirements.md](docs/requirements/2026-05-29-001-phase-4-capacity-waitlist-requirements.md)
 - **Structural precedent:** [docs/plans/2026-05-21-001-feat-phase-3-stripe-billing-plan.md](docs/plans/2026-05-21-001-feat-phase-3-stripe-billing-plan.md)
 - **Institutional learnings:** `docs/solutions/billing/{sync-stripe-data-pattern,nestjs-stripe-testing-seam,rename-before-reuse-migration}.md`
 - **Key code seams:** `apps/api/src/billing/billing.service.ts`, `apps/api/src/tickets/tickets.service.ts`, `apps/api/src/webhooks/stripe-webhook.service.ts`, `apps/api/src/auth/{jwt-auth.guard,roles.guard}.ts`, `packages/db/api/schema.prisma`, `apps/web/src/app/events/[eventId]/TicketRow.tsx`
