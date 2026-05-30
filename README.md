@@ -48,7 +48,8 @@ pnpm dev
 - **Phase 1** — Accounts service (OIDC IdP) with signup/login ✅
 - **Phase 2** — Organizer onboarding + event CRUD (OAuth client) ✅
 - **Phase 3** — Stripe billing: tiered memberships + tiered tickets + per-event coverage ✅
-- **Phase 4** — Refunds, payouts, capacity, multi-currency (planned)
+- **Phase 4** — Capacity caps + waitlist (request → approve/reject),
+  transactional email, live SSE admin queue ✅
 
 ## What Phase 2 ships
 
@@ -101,6 +102,34 @@ pnpm dev
   in a standalone migration so the term is free for the new platform
   subscription model.
 
+## What Phase 4 ships
+
+- Optional per-tier **capacity cap** (`TicketType.cap`). Under cap, the
+  Phase 3 instant buy + claim paths are unchanged; at cap, purchases and
+  member claims become moderated **waitlist requests** instead of issuing
+  a ticket. The cap is a *soft* cap — organizers may approve over it.
+- A thin `TicketRequest` lifecycle (`PENDING → APPROVED / REJECTED /
+  EXPIRED / CANCELLED_BY_USER`) on a single compare-and-set + audit core,
+  with a partial unique index enforcing at most one open request per
+  user per tier.
+- Requester surface: a public **Request a spot** affordance on the event
+  page at cap, and a `/dashboard/requests` list + detail with a pay CTA
+  for approved paid requests and an idempotent self-cancel.
+- Organizer surface: a live `/dashboard/organizations/:orgId/requests`
+  queue that approves (paid → Stripe Checkout link, free → instant
+  claim) or rejects, updating in real time.
+- **Transactional email** (Resend) behind a swappable seam — approval
+  (paid + claim) and rejection notices, sent best-effort *after* the DB
+  transition commits, never blocking the response.
+- **Live admin queue over SSE**: a per-org emit hub fans every transition
+  to connected admins, authenticated by a single-use, opaque,
+  ~60s-lived query token minted from a role-gated, throttled endpoint
+  (EventSource can't send an Authorization header).
+- A row-locked **webhook reconciliation** that re-checks payability at
+  payment time and auto-refunds a charge landing against a dead request,
+  plus a `@Cron` **auto-reject** sweep that rejects still-pending
+  requests once their event starts.
+
 ## Local boot recipe
 
 ```bash
@@ -124,13 +153,27 @@ Stripe Dashboard recipe (six Prices with their `lookup_key`s, the
 "Limit customers to one subscription" toggle, secret rotation, security
 model). Drive `docs/phase-3-browser-smoke.md` for an end-to-end check.
 
-## Phase 4 hardening notes (carried over from Phase 3)
+For the Phase 4 waitlist additions, see `docs/phase-4-setup.md` for the
+Resend account + DNS (SPF/DKIM/DMARC) setup, the SSE production posture
+(proxy buffering, heartbeat, query-token redaction), and the
+single-instance operational constraints on the scheduler and SSE token
+store. Drive `docs/phase-4-browser-smoke.md` for the end-to-end
+at-cap → request → approve/reject → pay → email click-through plus the
+two-tab live-SSE check. No new env vars beyond `RESEND_API_KEY`,
+`MAIL_FROM`, and `WEB_ORIGIN` (already in `.env.example`).
 
-- Refunds, chargebacks, dispute handling. Phase 3 issues but never
-  cancels a Ticket; the only failure mode covered is the webhook
-  auto-refund for tampered checkout metadata.
-- Capacity, sold-out states, per-tier inventory, waitlists.
+## Beyond Phase 4 (future hardening)
+
+- General refunds, chargebacks, dispute handling. Phases 3–4 issue but
+  never cancel a Ticket; the only automatic refund is the Phase 4
+  webhook auto-refund for a charge landing against a dead waitlist
+  request (tampered metadata or a no-longer-payable request).
+- Hard capacity enforcement. Phase 4's cap is a *soft* cap — organizers
+  can approve over it; there is no counted, locked check at issue time.
+- Sold-out states / per-tier inventory display beyond the cap signal.
 - Organizer payouts / revenue-share (Stripe Connect).
 - Member invitations and removal from the dashboard.
-- Image uploads, search, email notifications, custom receipt emails
-  beyond Stripe defaults, RP-initiated logout parity.
+- Image uploads, search, custom receipt emails beyond Stripe defaults,
+  RP-initiated logout parity.
+- SSE / scheduler horizontal scale-up (shared token store,
+  `pg_try_advisory_lock` around the sweep) — see `docs/phase-4-setup.md`.
