@@ -1,5 +1,3 @@
-"use client";
-
 const DATETIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
