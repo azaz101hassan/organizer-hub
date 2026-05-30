@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { TicketTypeView } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { TicketTypeView } from "@organizer-hub/web-shared";
 
 export interface TicketTypeFormState {
   error?: string;

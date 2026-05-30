@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { readSession } from "@/lib/api/session";
+import { readSession } from "@organizer-hub/web-shared";
 
 export default async function Home() {
-  const session = await readSession();
+  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-black px-6">

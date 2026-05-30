@@ -1,8 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { EventView } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { EventView } from "@organizer-hub/web-shared";
 
 export interface CreateEventFormState {
   error?: string;

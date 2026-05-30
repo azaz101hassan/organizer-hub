@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { ClaimResult, TicketCheckoutResult } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { ClaimResult, TicketCheckoutResult } from "@organizer-hub/web-shared";
 
 // Every server action defends-in-depth: the api re-runs the coverage rule on
 // claim, re-checks atCap on intake, and refuses tampered ticketTypeIds on

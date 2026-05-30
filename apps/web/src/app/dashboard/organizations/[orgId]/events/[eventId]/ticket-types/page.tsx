@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 import type {
   EventView,
   OrganizationView,
   TicketTypeView,
-} from "@/lib/api/types";
+} from "@organizer-hub/web-shared";
 import { TicketTypeAddForm, TicketTypeRow } from "./TicketTypeEditor";
 
 export default async function TicketTypesPage({

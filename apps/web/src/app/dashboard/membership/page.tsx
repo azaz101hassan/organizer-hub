@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { apiFetch, UnauthorizedError } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/format";
+import { apiFetch, UnauthorizedError, formatDateTime } from "@organizer-hub/web-shared";
 import type {
   MembershipView,
   SubscriptionStatus,
-} from "@/lib/api/types";
+} from "@organizer-hub/web-shared";
 import { CancelButton } from "./CancelButton";
 
 const STATUS_LABEL: Record<SubscriptionStatus, string> = {

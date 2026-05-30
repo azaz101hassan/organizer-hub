@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { oidcConfig, oidcEndpoints } from "@/lib/oidc/config";
-import { generatePkcePair, generateState } from "@/lib/oidc/pkce";
+import { oidcConfig, oidcEndpoints } from "@/lib/oidc";
+import { generatePkcePair, generateState } from "@organizer-hub/web-shared/oidc/pkce";
 
 export async function GET(): Promise<Response> {
   const { verifier, challenge } = generatePkcePair();
@@ -26,7 +26,7 @@ export async function GET(): Promise<Response> {
     sameSite: "lax" as const,
     maxAge: 600, // 10 minutes — only used during the redirect roundtrip
   };
-  res.cookies.set("oidc_state", state, cookieOpts);
-  res.cookies.set("oidc_verifier", verifier, cookieOpts);
+  res.cookies.set("oh_member_state", state, cookieOpts);
+  res.cookies.set("oh_member_pkce", verifier, cookieOpts);
   return res;
 }

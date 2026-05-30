@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ApiError, apiFetch, publicApiFetch, UnauthorizedError } from "@/lib/api/client";
-import { readSession } from "@/lib/api/session";
+import {
+  ApiError,
+  apiFetch,
+  publicApiFetch,
+  readSession,
+  UnauthorizedError,
+  formatDateTime,
+} from "@organizer-hub/web-shared";
 import type {
   CoverageResult,
   PublicEventView,
   TicketTypePublicView,
-} from "@/lib/api/types";
-import { formatDateTime } from "@/lib/format";
+} from "@organizer-hub/web-shared";
 import TicketRow from "./TicketRow";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +41,7 @@ export default async function PublicEventDetailPage({
     throw err;
   }
 
-  const session = await readSession();
+  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
   const signedIn = session !== null;
 
   // Coverage is per-user — only fetch if signed in. On any failure (token

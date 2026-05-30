@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import type { TicketTypeView } from "@/lib/api/types";
+import type { TicketTypeView } from "@organizer-hub/web-shared";
 import {
   createTicketType,
   deleteTicketType,

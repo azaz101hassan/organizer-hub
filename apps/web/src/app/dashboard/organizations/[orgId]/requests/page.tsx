@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { AdminQueuePage } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { AdminQueuePage } from "@organizer-hub/web-shared";
 import WaitlistQueue from "./WaitlistQueue";
 
 export const dynamic = "force-dynamic";

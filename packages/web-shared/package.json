@@ -1,0 +1,26 @@
+{
+  "name": "@organizer-hub/web-shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./oidc/pkce": "./src/oidc/pkce.ts",
+    "./oidc/refresh": "./src/oidc/refresh.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "next": "16.2.6"
+  },
+  "dependencies": {
+    "jose": "^6.2.3"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

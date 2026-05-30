@@ -1,8 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
-import type { OrganizationView } from "@/lib/api/types";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
+import type { OrganizationView } from "@organizer-hub/web-shared";
 
 export interface CreateOrgFormState {
   error?: string;

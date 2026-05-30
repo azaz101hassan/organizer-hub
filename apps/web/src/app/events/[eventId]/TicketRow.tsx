@@ -9,7 +9,7 @@ import {
   type ClaimState,
   type RequestSpotState,
 } from "./actions";
-import type { CoverageResult, TicketTypePublicView } from "@/lib/api/types";
+import type { CoverageResult, TicketTypePublicView } from "@organizer-hub/web-shared";
 
 const INITIAL_CLAIM: ClaimState = {};
 const INITIAL_REQUEST: RequestSpotState = {};

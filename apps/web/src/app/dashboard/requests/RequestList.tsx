@@ -1,6 +1,6 @@
 import Link from "next/link";
-import type { RequesterTicketRequestView } from "@/lib/api/types";
-import { formatDateTime } from "@/lib/format";
+import type { RequesterTicketRequestView } from "@organizer-hub/web-shared";
+import { formatDateTime } from "@organizer-hub/web-shared";
 import { RequestStatusBadge } from "./RequestStatusBadge";
 
 export default function RequestList({

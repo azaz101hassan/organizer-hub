@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 
 export interface CancelState {
   error?: string;

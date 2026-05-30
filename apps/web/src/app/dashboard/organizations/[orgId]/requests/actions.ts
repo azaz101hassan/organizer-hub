@@ -1,10 +1,10 @@
 "use server";
 
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 import type {
   AdminQueuePage,
   AdminTicketRequestView,
-} from "@/lib/api/types";
+} from "@organizer-hub/web-shared";
 
 export interface ActionResult {
   ok?: boolean;

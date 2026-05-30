@@ -10,6 +10,12 @@ export interface Session {
   accessToken: string;
 }
 
+export type SessionCookieNames = {
+  session: string;     // e.g. "oh_member_session"
+  refresh: string;     // e.g. "oh_member_refresh"
+  accessToken: string; // e.g. "oh_member_access_token"
+};
+
 interface IdTokenClaims {
   sub?: string;
   email?: string;
@@ -17,10 +23,10 @@ interface IdTokenClaims {
   email_verified?: boolean;
 }
 
-export async function readSession(): Promise<Session | null> {
+export async function readSession(names: SessionCookieNames): Promise<Session | null> {
   const store = await cookies();
-  const idToken = store.get("session")?.value;
-  const accessToken = store.get("access_token")?.value;
+  const idToken = store.get(names.session)?.value;
+  const accessToken = store.get(names.accessToken)?.value;
   if (!idToken || !accessToken) return null;
 
   let claims: IdTokenClaims;

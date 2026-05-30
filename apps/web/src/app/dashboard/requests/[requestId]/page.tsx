@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError } from "@/lib/api/client";
+import { ApiError, apiFetch, UnauthorizedError, formatDateTime, formatTimeUntil } from "@organizer-hub/web-shared";
 import type {
   PaymentLinkView,
   RequesterTicketRequestView,
-} from "@/lib/api/types";
-import { formatDateTime, formatTimeUntil } from "@/lib/format";
+} from "@organizer-hub/web-shared";
 import { CancelRequestButton } from "../CancelRequestButton";
 import { RequestStatusBadge } from "../RequestStatusBadge";
 
