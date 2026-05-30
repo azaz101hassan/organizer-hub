@@ -1,9 +1,9 @@
-// apps/web/src/lib/oidc/refresh.ts
+// packages/web-shared/src/oidc/refresh.ts
 //
 // Server-only. POSTs grant_type=refresh_token to the IdP and returns the new
 // token set. Returns null on any non-2xx or fetch failure — the caller decides
 // what to do (typically clear cookies and continue).
-import { oidcConfig, oidcEndpoints } from "@/lib/oidc/config";
+import type { OidcConfig, OidcEndpoints } from "./config";
 
 export interface TokenResponse {
   access_token: string;
@@ -16,15 +16,17 @@ export interface TokenResponse {
 
 export async function refreshTokens(
   refreshToken: string,
+  config: OidcConfig,
+  endpoints: OidcEndpoints,
 ): Promise<TokenResponse | null> {
   try {
-    const res = await fetch(oidcEndpoints.token, {
+    const res = await fetch(endpoints.token, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-        client_id: oidcConfig.clientId,
+        client_id: config.clientId,
       }),
       cache: "no-store",
     });

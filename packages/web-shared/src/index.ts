@@ -3,3 +3,7 @@ export { readSession } from "./api/session";
 export type { SessionCookieNames } from "./api/session";
 export type * from "./api/types";
 export { formatDateTime, formatTimeUntil, toDatetimeLocalValue } from "./format";
+export { buildOidcConfig } from "./oidc/config";
+export type { OidcConfig, OidcEndpoints, OidcDefaults } from "./oidc/config";
+export { refreshTokens } from "./oidc/refresh";
+export type { TokenResponse } from "./oidc/refresh";

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { oidcConfig, oidcEndpoints } from "@/lib/oidc/config";
+import { oidcConfig, oidcEndpoints } from "@/lib/oidc";
 
 interface TokenResponse {
   access_token: string;

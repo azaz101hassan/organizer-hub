@@ -7,7 +7,9 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./oidc/pkce": "./src/oidc/pkce.ts",
+    "./oidc/refresh": "./src/oidc/refresh.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

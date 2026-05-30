@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { oidcConfig, oidcEndpoints } from "@/lib/oidc/config";
-import { generatePkcePair, generateState } from "@/lib/oidc/pkce";
+import { oidcConfig, oidcEndpoints } from "@/lib/oidc";
+import { generatePkcePair, generateState } from "@organizer-hub/web-shared/oidc/pkce";
 
 export async function GET(): Promise<Response> {
   const { verifier, challenge } = generatePkcePair();

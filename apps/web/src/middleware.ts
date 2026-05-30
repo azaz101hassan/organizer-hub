@@ -10,7 +10,8 @@
 //   ~/Documents/Obsidian/OrganizerHub/Auth/Token Refresh - Limitations.md
 import { NextRequest, NextResponse } from "next/server";
 import { decodeJwt } from "jose";
-import { refreshTokens, type TokenResponse } from "@/lib/oidc/refresh";
+import { refreshTokens, type TokenResponse } from "@organizer-hub/web-shared/oidc/refresh";
+import { oidcConfig, oidcEndpoints } from "@/lib/oidc";
 
 const SKEW_SECONDS = 60;
 const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 14; // 14 days
@@ -61,7 +62,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     return clearAuthCookies(NextResponse.next());
   }
 
-  const tokens = await refreshTokens(refreshToken);
+  const tokens = await refreshTokens(refreshToken, oidcConfig, oidcEndpoints);
   if (!tokens) {
     return clearAuthCookies(NextResponse.next());
   }
