@@ -38,9 +38,11 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 
 ```bash
 pnpm install
-cp .env.example .env
+pnpm setup:env
 pnpm dev
 ```
+
+Run `pnpm setup:env` to scaffold per-app `.env.local` files from each `.env.example`, then fill in any sentinel values.
 
 ## Phases
 
