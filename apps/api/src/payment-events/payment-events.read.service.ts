@@ -19,7 +19,7 @@ const WRITE_ROLES: ReadonlySet<OrganizationRole> = new Set([
   OrganizationRole.ADMIN,
 ]);
 
-interface ListPage {
+export interface ListPage {
   items: PaymentEventView[];
   nextCursor: string | null;
 }
