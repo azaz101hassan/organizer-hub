@@ -97,9 +97,16 @@ export default async function PublicEventDetailPage({
         >
           ← All events
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {event.title}
-        </h1>
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {event.title}
+          </h1>
+          {event.label && (
+            <span className="mt-2 shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+              {event.label.name}
+            </span>
+          )}
+        </div>
         <p className="mt-2 text-sm text-zinc-500">
           Hosted by{" "}
           <span className="text-zinc-700 dark:text-zinc-300">

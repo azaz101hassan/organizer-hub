@@ -1,27 +1,65 @@
 import Link from "next/link";
-import { ApiError, publicApiFetch, formatDateTime } from "@organizer-hub/web-shared";
-import type { PublicEventsPage } from "@organizer-hub/web-shared";
+import {
+  ApiError,
+  publicApiFetch,
+  formatDateTime,
+  getHouseOrgId,
+} from "@organizer-hub/web-shared";
+import type {
+  EventLabelView,
+  PublicEventsPage,
+} from "@organizer-hub/web-shared";
 
 export const dynamic = "force-dynamic";
+
+interface PublicLabelChip {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+async function fetchLabels(): Promise<PublicLabelChip[]> {
+  let houseOrgId: string;
+  try {
+    houseOrgId = getHouseOrgId();
+  } catch {
+    // Member is still allowed to render /events without HOUSE_ORG_ID set;
+    // it just renders without the filter strip in that case.
+    return [];
+  }
+  try {
+    return await publicApiFetch<PublicLabelChip[]>(
+      `/public/event-labels?organizationId=${encodeURIComponent(houseOrgId)}`,
+    );
+  } catch {
+    return [];
+  }
+}
 
 export default async function PublicEventsListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cursor?: string }>;
+  searchParams: Promise<{ cursor?: string; labelId?: string }>;
 }) {
-  const { cursor } = await searchParams;
+  const { cursor, labelId } = await searchParams;
 
   let page: PublicEventsPage;
+  const labels = await fetchLabels();
   try {
     const qs = new URLSearchParams({ limit: "20" });
     if (cursor) qs.set("cursor", cursor);
+    if (labelId) qs.set("labelId", labelId);
     page = await publicApiFetch<PublicEventsPage>(
       `/public/events?${qs.toString()}`,
     );
   } catch (err) {
     if (err instanceof ApiError && err.status === 400) {
       // Stale or malformed cursor — start over.
-      page = await publicApiFetch<PublicEventsPage>("/public/events?limit=20");
+      const qsClean = new URLSearchParams({ limit: "20" });
+      if (labelId) qsClean.set("labelId", labelId);
+      page = await publicApiFetch<PublicEventsPage>(
+        `/public/events?${qsClean.toString()}`,
+      );
     } else {
       throw err;
     }
@@ -51,6 +89,24 @@ export default async function PublicEventsListPage({
           Upcoming events
         </h1>
 
+        {labels.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <FilterChip
+              href="/events"
+              active={!labelId}
+              label="All"
+            />
+            {labels.map((l) => (
+              <FilterChip
+                key={l.id}
+                href={`/events?labelId=${encodeURIComponent(l.id)}`}
+                active={labelId === l.id}
+                label={l.name}
+              />
+            ))}
+          </div>
+        )}
+
         {page.items.length === 0 ? (
           <p className="mt-6 text-sm text-zinc-500">
             No upcoming events yet — check back soon.
@@ -63,9 +119,16 @@ export default async function PublicEventsListPage({
                   href={`/events/${event.id}`}
                   className="block px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition"
                 >
-                  <p className="text-base font-medium text-zinc-900 dark:text-zinc-50">
-                    {event.title}
-                  </p>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="text-base font-medium text-zinc-900 dark:text-zinc-50">
+                      {event.title}
+                    </p>
+                    {event.label && (
+                      <span className="shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+                        {event.label.name}
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-xs text-zinc-500">
                     {formatDateTime(event.startsAt)} · {event.organization.name}
                     {event.venue && ` · ${event.venue}`}
@@ -79,7 +142,10 @@ export default async function PublicEventsListPage({
         {page.nextCursor && (
           <div className="mt-6 text-right">
             <Link
-              href={`/events?cursor=${encodeURIComponent(page.nextCursor)}`}
+              href={`/events?${new URLSearchParams({
+                cursor: page.nextCursor,
+                ...(labelId ? { labelId } : {}),
+              }).toString()}`}
               className="text-sm text-blue-600 hover:underline"
             >
               Next page →
@@ -88,5 +154,26 @@ export default async function PublicEventsListPage({
         )}
       </div>
     </main>
+  );
+}
+
+function FilterChip({
+  href,
+  active,
+  label,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+}) {
+  const base =
+    "rounded-full px-3 py-1 text-xs font-medium transition border";
+  const cls = active
+    ? `${base} bg-zinc-900 dark:bg-zinc-100 text-zinc-50 dark:text-zinc-900 border-transparent`
+    : `${base} bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800`;
+  return (
+    <Link href={href} className={cls}>
+      {label}
+    </Link>
   );
 }

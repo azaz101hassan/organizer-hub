@@ -199,6 +199,26 @@ describe('PublicEvents (e2e)', () => {
         .expect(400);
     });
 
+    it('exposes labels for an org without auth via GET /public/event-labels', async () => {
+      await prisma.eventLabel.createMany({
+        data: [
+          { organizationId: orgId, name: 'Workshops', slug: 'workshops', sortOrder: 1 },
+          { organizationId: orgId, name: 'Concerts', slug: 'concerts', sortOrder: 0 },
+        ],
+      });
+      const res = await request(app.getHttpServer())
+        .get(`/public/event-labels?organizationId=${orgId}`)
+        .expect(200);
+      const labels = res.body as Array<{ name: string; slug: string }>;
+      expect(labels.map((l) => l.name)).toEqual(['Concerts', 'Workshops']);
+    });
+
+    it('public event-labels returns 400 without organizationId', async () => {
+      await request(app.getHttpServer())
+        .get('/public/event-labels')
+        .expect(400);
+    });
+
     it('filters by ?labelId and embeds the label on each item', async () => {
       const concerts = await prisma.eventLabel.create({
         data: { organizationId: orgId, name: 'Concerts', slug: 'concerts' },
