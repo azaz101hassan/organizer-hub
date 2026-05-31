@@ -98,8 +98,9 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  members OrganizationMember[]
-  events  Event[]
+  members     OrganizationMember[]
+  events      Event[]
+  eventLabels EventLabel[]
 
   @@map("organizations")
 }
@@ -134,11 +135,13 @@ model Event {
   status          EventStatus @default(DRAFT)
   publishedAt     DateTime?   @map("published_at")
   membersExcluded Boolean     @default(false) @map("members_excluded")
+  labelId         String?     @map("label_id")
   createdBy       String      @map("created_by") // sub from accounts
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  label          EventLabel?     @relation(fields: [labelId], references: [id], onDelete: SetNull)
   ticketTypes    TicketType[]
   tickets        Ticket[]
   ticketRequests TicketRequest[]
@@ -146,7 +149,31 @@ model Event {
   @@unique([organizationId, slug])
   @@index([status, startsAt])
   @@index([organizationId, startsAt])
+  @@index([labelId])
   @@map("events")
+}
+
+// ---------- Event labels ----------
+
+// Per-org categorization tag (e.g., "Concerts", "Workshops"). Events optionally
+// reference one EventLabel via Event.labelId; the FK uses SET NULL so deleting
+// a label clears its references without cascading event deletes. The admin app
+// (Phase E) is the only writer.
+model EventLabel {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  slug           String
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  events       Event[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, sortOrder])
+  @@map("event_labels")
 }
 
 // ---------- Tickets ----------
