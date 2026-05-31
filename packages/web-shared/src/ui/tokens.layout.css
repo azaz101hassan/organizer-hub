@@ -72,6 +72,7 @@
 .badge--published { background: var(--good-soft); color: var(--good); }
 .badge--draft  { background: var(--surface-2); color: var(--faint); }
 .badge--cancelled { background: var(--bad-soft); color: var(--bad); }
+.badge--featured { background: var(--accent-soft); color: var(--accent); }
 .dot { width: 7px; height: 7px; border-radius: 999px; display: inline-block; }
 
 /* ---------------- CARDS / SURFACES ---------------- */
