@@ -14,9 +14,11 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
-    "setup:env": "node scripts/setup-env.mjs"
+    "setup:env": "node scripts/setup-env.mjs",
+    "setup:owner": "node scripts/promote-house-owner.mjs"
   },
   "devDependencies": {
+    "@organizer-hub/db": "workspace:*",
     "playwright": "^1.60.0",
     "turbo": "^2.5.4",
     "typescript": "^5.7.3"

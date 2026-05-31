@@ -52,6 +52,14 @@ pnpm dev
 
 The `apps/api` seed prints a `HOUSE_ORG_ID`. The default `apps/admin/.env.example` already wires the deterministic id used by the seed, so a clean `pnpm setup:env` lands a working admin env without manual editing. If you change the id, paste it into `apps/admin/.env.local`. Each app has its own OAuth client and its own session cookies (`oh_member_*`, `oh_admin_*`), so the same browser can be signed into both side by side.
 
+Signup alone does not grant any organization membership. After signing up via `apps/accounts` (port 3002), promote yourself to OWNER on the seeded house org so `apps/admin` write paths (labels, events) stop returning 404:
+
+```bash
+pnpm setup:owner you@example.com
+```
+
+This is a local-dev convenience only — see `docs/specs/2026-05-31-promote-house-owner-design.md` for the rationale.
+
 ## Phases
 
 - **Phase 0** — Monorepo scaffold + tooling ✅
