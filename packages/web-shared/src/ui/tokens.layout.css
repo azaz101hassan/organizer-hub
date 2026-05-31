@@ -60,6 +60,7 @@
   border: 1px solid var(--line);
   white-space: nowrap;
 }
+.chip--active { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
 .badge {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
@@ -79,6 +80,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 }
+.card--padded { padding: 22px 24px; }
 .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
 
 /* ---------------- FORM FIELDS ---------------- */
@@ -95,6 +97,42 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
 }
 .textarea { resize: vertical; min-height: 96px; line-height: 1.5; }
+
+/* ---------------- POSTER ART (event imagery) ---------------- */
+.poster {
+  position: relative; overflow: hidden;
+  background: var(--poster-bg, var(--surface-2));
+  isolation: isolate;
+}
+.poster::after {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background-image: var(--grain);
+  background-size: 180px 180px;
+  opacity: calc(var(--grain-opacity) * var(--grain-opacity-mult, 1));
+  mix-blend-mode: soft-light; pointer-events: none;
+}
+.poster__wash {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(120% 90% at 12% 8%, color-mix(in oklab, var(--p1) 88%, transparent), transparent 60%),
+    radial-gradient(130% 120% at 92% 100%, color-mix(in oklab, var(--p2) 92%, transparent), transparent 55%),
+    linear-gradient(150deg, var(--p1), var(--p2));
+}
+.poster__mono {
+  position: absolute; z-index: 1; inset: 0;
+  display: flex; align-items: flex-end;
+  font-family: var(--font-display); line-height: .8;
+  color: color-mix(in oklab, var(--p-ink) 80%, transparent);
+  mix-blend-mode: overlay;
+}
+
+/* ---------------- STATUS PILLS ---------------- */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 3px 10px; border-radius: var(--chip-radius); text-transform: capitalize; }
+.pill--paid    { background: var(--good-soft); color: var(--good); }
+.pill--pending { background: var(--warn-soft); color: var(--warn); }
+.pill--refunded { background: var(--bad-soft); color: var(--bad); }
+.pill--active  { background: var(--good-soft); color: var(--good); }
+.pill--lapsed  { background: var(--surface-2); color: var(--faint); }
 
 /* ---------------- SCROLL / LAYOUT HELPERS ---------------- */
 .app { min-height: 100vh; }
