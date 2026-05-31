@@ -87,6 +87,23 @@ enum TicketRequestDecision {
   REJECT
 }
 
+// Payment-event ledger: what triggered a money movement.
+enum PaymentEventKind {
+  TICKET
+  MEMBERSHIP
+  DONATION
+  REFUND
+  DISPUTE
+}
+
+// Payment-event ledger: mirrors relevant Stripe PaymentIntent statuses.
+enum PaymentEventStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
 // ---------- Organizations ----------
 
 model Organization {
@@ -386,30 +403,17 @@ model Membership {
   @@map("memberships")
 }
 
-enum PaymentEventKind {
-  TICKET
-  MEMBERSHIP
-  DONATION
-  REFUND
-  DISPUTE
-}
-
-enum PaymentEventStatus {
-  PENDING
-  SUCCEEDED
-  FAILED
-  CANCELED
-}
-
 // Local mirror of Stripe money-movement. One row per PaymentIntent (kind in
 // {TICKET, MEMBERSHIP, DONATION}); separate negative-amount rows per Refund /
 // Dispute object. amountCents is signed: refunds/disputes negative. Net per
 // PaymentIntent = SUM(amount_cents) of all rows sharing stripe_payment_intent_id.
 //
-// stripePaymentIntentId is NOT @unique because refund rows reference the same
-// PI as the charge they refund. The (stripePaymentIntentId, kind) composite
-// unique gates the single charge row per PI; refund rows are gated by the
-// @unique stripeRefundId.
+// stripePaymentIntentId is NOT @unique because refund/dispute rows reference
+// the same PI as the charge they refund. A hand-written PARTIAL UNIQUE INDEX
+// (stripe_payment_intent_id, kind) WHERE kind NOT IN ('REFUND','DISPUTE')
+// enforces one charge row per PI without blocking multiple refund/dispute rows.
+// The index is Prisma-inexpressible — see the refine_payment_event_partial_unique
+// migration. stripeRefundId @unique gates individual refund-row idempotency.
 model PaymentEvent {
   id                       String              @id @default(cuid())
   organizationId           String              @map("organization_id")
@@ -436,9 +440,8 @@ model PaymentEvent {
   succeededAt              DateTime?           @map("succeeded_at")
   canceledAt               DateTime?           @map("canceled_at")
   createdAt                DateTime            @default(now()) @map("created_at")
-  updatedAt                DateTime            @updatedAt       @map("updated_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
 
-  @@unique([stripePaymentIntentId, kind], map: "payment_events_pi_kind_key")
   @@index([organizationId, createdAt])
   @@index([userId, createdAt])
   @@index([stripePaymentIntentId])
