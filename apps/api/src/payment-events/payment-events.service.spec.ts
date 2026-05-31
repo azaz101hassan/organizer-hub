@@ -3,6 +3,12 @@ import { PaymentEventKind, PaymentEventStatus } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentEventsService } from './payment-events.service';
 
+// These tests exercise PaymentEventsService against the real api_db.
+// Unlike most service specs in this codebase (which mock Prisma), this
+// suite verifies database-level guarantees that a mock cannot model:
+// the (PI, kind) partial unique index, the stripeRefundId unique, and
+// the silent-replay semantics around P2002. Mocking Prisma would reduce
+// these to tautologies.
 describe('PaymentEventsService', () => {
   let service: PaymentEventsService;
   let prisma: PrismaService;

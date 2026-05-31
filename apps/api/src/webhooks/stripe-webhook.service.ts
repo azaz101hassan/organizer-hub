@@ -79,6 +79,9 @@ export class StripeWebhookService {
       return this.handleCheckoutExpired(event);
     }
 
+    // 'checkout.session.created' is a real Stripe event but is absent from the
+    // SDK v22 Event['type'] union for this apiVersion; comparison needs the
+    // cast to widen `event.type` to a plain string.
     if ((event.type as string) === 'checkout.session.created') {
       return this.handleCheckoutCreated(event);
     }
