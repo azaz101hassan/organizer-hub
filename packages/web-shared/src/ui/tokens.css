@@ -1,0 +1,97 @@
+/* packages/web-shared/src/ui/tokens.css */
+/* OrganizerHub design tokens.
+   :root holds Atrium defaults. [data-theme="noir"] and [data-theme="vellum"]
+   override them. Tailwind v4 @theme inline re-exposes each variable as a
+   utility-class token so bg-surface, text-ink, rounded-btn etc. resolve
+   theme-aware. */
+
+/* @theme inline maps Tailwind utility tokens to the CSS variables declared
+   in :root / [data-theme]. The font lines below look self-referential but
+   are not: Tailwind reads them inline and emits font-family: var(--font-*)
+   in utility classes without writing a :root override, so the var()
+   resolves from the theme blocks. Do not "fix" the apparent loop. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-on: var(--accent-on);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-btn: var(--btn-radius);
+  --radius-chip: var(--chip-radius);
+}
+
+:root,
+[data-theme="atrium"] {
+  --bg:           #f1ece1;
+  --surface:      #fbf8f1;
+  --surface-2:    #ece5d6;
+  --ink:          #211d16;
+  --muted:        #6c6453;
+  --faint:        #97907e;
+  --line:         #ded5c2;
+  --line-strong:  #cfc4ab;
+  --accent:       #9c6a39;
+  --accent-2:     #80522a;
+  --accent-on:    #fbf8f1;
+  --accent-soft:  #ece0cd;
+  --good:         #4f7a52;
+  --good-soft:    #e0ead9;
+  --warn:         #a4742a;
+  --warn-soft:    #efe3c9;
+  --bad:          #9c4f43;
+  --bad-soft:     #efd9d2;
+
+  --radius:       6px;
+  --radius-lg:    10px;
+  --btn-radius:   3px;
+  --chip-radius:  999px;
+
+  --font-display: var(--font-cormorant), Georgia, serif;
+  --font-body:    var(--font-hanken), system-ui, sans-serif;
+  --font-mono:    var(--font-spline-mono), ui-monospace, monospace;
+
+  --display-weight:   600;
+  --display-tracking: -0.01em;
+  --display-lh:       1.02;
+  --eyebrow-tracking: 0.22em;
+
+  --shadow:    0 1px 2px rgba(40,33,20,.05), 0 14px 40px -28px rgba(40,33,20,.5);
+  --shadow-lg: 0 2px 4px rgba(40,33,20,.06), 0 40px 80px -40px rgba(40,33,20,.55);
+  --grain-opacity: .5;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+button { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+::selection { background: var(--accent); color: var(--accent-on); }

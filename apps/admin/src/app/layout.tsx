@@ -1,71 +1,62 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import {
+  Cormorant_Garamond,
+  Hanken_Grotesk,
+  Spectral,
+  Space_Grotesk,
+  Spline_Sans_Mono,
+} from "next/font/google";
+import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-cormorant",
+  display: "swap",
 });
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const hanken = Hanken_Grotesk({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-hanken",
+  display: "swap",
+});
+const spectral = Spectral({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-spectral",
+  display: "swap",
+});
+const spaceGrot = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
+const splineMono = Spline_Sans_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-spline-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "OrganizerHub Admin",
-  description: "OrganizerHub organizer dashboard",
+  title: { default: "OrganizerHub Admin", template: "%s · Admin" },
+  description: "OrganizerHub organizer dashboard.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
+  const theme = await readThemeCookie("oh_admin_theme", "noir");
+  const fontVars = [cormorant, hanken, spectral, spaceGrot, splineMono]
+    .map((f) => f.variable)
+    .join(" ");
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
-        <header className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
-            <nav className="flex items-center gap-6">
-              <Link
-                href="/events"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition"
-              >
-                Events
-              </Link>
-              <Link
-                href="/labels"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition"
-              >
-                Labels
-              </Link>
-              <Link
-                href="/requests"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition"
-              >
-                Waitlist
-              </Link>
-              <Link
-                href="/transactions"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition"
-              >
-                Transactions
-              </Link>
-            </nav>
-            <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-              Admin
-            </span>
-          </div>
-        </header>
-        <main className="flex-1 mx-auto w-full max-w-5xl px-6 py-8">
-          {children}
-        </main>
-      </body>
+    <html lang="en" data-theme={theme} className={`${fontVars} h-full`}>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

@@ -9,7 +9,12 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./oidc/pkce": "./src/oidc/pkce.ts",
-    "./oidc/refresh": "./src/oidc/refresh.ts"
+    "./oidc/refresh": "./src/oidc/refresh.ts",
+    "./ui/tokens.css": "./src/ui/tokens.css",
+    "./ui/tokens.theme.noir.css": "./src/ui/tokens.theme.noir.css",
+    "./ui/tokens.theme.vellum.css": "./src/ui/tokens.theme.vellum.css",
+    "./ui/tokens.layout.css": "./src/ui/tokens.layout.css",
+    "./ui/theme": "./src/ui/theme/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
