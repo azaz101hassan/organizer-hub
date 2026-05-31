@@ -21,6 +21,14 @@ export { Poster, type Mood } from "./poster/Poster";
 export { MOODS, monogram } from "./poster/moods";
 export { GRAIN_TEXTURE } from "./poster/grain";
 
+// Charts + data primitives
+export { BarChart, type BarDatum, type BarChartProps } from "./charts/BarChart";
+export { Donut, type DonutDatum, type DonutProps } from "./charts/Donut";
+export { Sparkline, type SparklineProps } from "./charts/Sparkline";
+export { Progress, type ProgressProps } from "./charts/Progress";
+export { Trend, type TrendProps } from "./charts/Trend";
+export { Segmented, type SegmentedOption, type SegmentedProps } from "./data/Segmented";
+
 // Navigation
 export { NavLink } from "./nav/NavLink";
 export { NavItem } from "./nav/NavItem";
