@@ -18,6 +18,7 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 | `apps/member` | 3000 | Next.js — consumer surface: public events, ticket purchase, membership (OAuth client `organizer-member`) |
 | `apps/api` | 3001 | NestJS — events, tickets, memberships, Stripe webhooks |
 | `apps/accounts` | 3002 | NestJS — OAuth2/OIDC Identity Provider |
+| `apps/admin` | 3003 | Next.js — organizer surface: events, ticket-types, labels, waitlist queue (OAuth client `organizer-admin`, bound to a single house org via `HOUSE_ORG_ID`) |
 
 ## Packages
 
@@ -39,10 +40,17 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 ```bash
 pnpm install
 pnpm setup:env
+pnpm --filter @organizer-hub/db migrate:accounts:dev
+pnpm --filter @organizer-hub/db migrate:api:dev
+pnpm --filter @organizer-hub/db seed:api    # 6 MembershipPlan rows
+pnpm --filter @organizer-hub/api seed       # house Organization + default EventLabels
+pnpm --filter @organizer-hub/accounts seed  # organizer-member and organizer-admin OAuth clients
 pnpm dev
 ```
 
-Run `pnpm setup:env` to scaffold per-app `.env.local` files from each `.env.example`, then fill in any sentinel values.
+`pnpm setup:env` scaffolds per-app `.env.local` files from each `.env.example` and never overwrites — re-run after pulling to pick up new keys (existing locals stay put; add new keys manually).
+
+The `apps/api` seed prints a `HOUSE_ORG_ID`. The default `apps/admin/.env.example` already wires the deterministic id used by the seed, so a clean `pnpm setup:env` lands a working admin env without manual editing. If you change the id, paste it into `apps/admin/.env.local`. Each app has its own OAuth client and its own session cookies (`oh_member_*`, `oh_admin_*`), so the same browser can be signed into both side by side.
 
 ## Phases
 
@@ -52,6 +60,10 @@ Run `pnpm setup:env` to scaffold per-app `.env.local` files from each `.env.exam
 - **Phase 3** — Stripe billing: tiered memberships + tiered tickets + per-event coverage ✅
 - **Phase 4** — Capacity caps + waitlist (request → approve/reject),
   transactional email, live SSE admin queue ✅
+- **Admin/member split** — split `apps/web` into `apps/member` (consumer,
+  port 3000) and `apps/admin` (organizer, port 3003) sharing
+  `packages/web-shared`; per-app `.env.local` driven by `pnpm setup:env`;
+  `EventLabel` category model (DB + API + admin CRUD + public filter) ✅
 
 ## What Phase 2 ships
 
@@ -135,14 +147,7 @@ Run `pnpm setup:env` to scaffold per-app `.env.local` files from each `.env.exam
 
 ## Local boot recipe
 
-```bash
-pnpm install
-cp .env.example .env  # fill in STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY
-pnpm --filter @organizer-hub/db migrate:accounts:dev
-pnpm --filter @organizer-hub/db migrate:api:dev
-pnpm --filter @organizer-hub/db seed:api      # seeds the 6 MembershipPlan rows
-pnpm dev
-```
+See "Getting started" above for the canonical sequence (it now bundles the per-app env split, the api `pnpm setup:env` step, and both seed scripts). The Stripe key wire-up below still applies regardless of which apps you boot.
 
 In a separate terminal, forward Stripe webhooks to the local api:
 

@@ -5,10 +5,7 @@ import {
   formatDateTime,
   getHouseOrgId,
 } from "@organizer-hub/web-shared";
-import type {
-  EventLabelView,
-  PublicEventsPage,
-} from "@organizer-hub/web-shared";
+import type { PublicEventsPage } from "@organizer-hub/web-shared";
 
 export const dynamic = "force-dynamic";
 
