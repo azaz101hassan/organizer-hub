@@ -385,3 +385,63 @@ model Membership {
   @@index([stripeCustomerId])
   @@map("memberships")
 }
+
+enum PaymentEventKind {
+  TICKET
+  MEMBERSHIP
+  DONATION
+  REFUND
+  DISPUTE
+}
+
+enum PaymentEventStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+// Local mirror of Stripe money-movement. One row per PaymentIntent (kind in
+// {TICKET, MEMBERSHIP, DONATION}); separate negative-amount rows per Refund /
+// Dispute object. amountCents is signed: refunds/disputes negative. Net per
+// PaymentIntent = SUM(amount_cents) of all rows sharing stripe_payment_intent_id.
+//
+// stripePaymentIntentId is NOT @unique because refund rows reference the same
+// PI as the charge they refund. The (stripePaymentIntentId, kind) composite
+// unique gates the single charge row per PI; refund rows are gated by the
+// @unique stripeRefundId.
+model PaymentEvent {
+  id                       String              @id @default(cuid())
+  organizationId           String              @map("organization_id")
+  userId                   String              @map("user_id")
+  kind                     PaymentEventKind
+  status                   PaymentEventStatus
+  amountCents              Int                 @map("amount_cents")
+  currency                 String
+  description              String?
+
+  stripeCustomerId         String?             @map("stripe_customer_id")
+  stripePaymentIntentId    String?             @map("stripe_payment_intent_id")
+  stripeCheckoutSessionId  String?             @map("stripe_checkout_session_id")
+  stripeInvoiceId          String?             @map("stripe_invoice_id")
+  stripeRefundId           String?             @unique @map("stripe_refund_id")
+  stripeChargeId           String?             @map("stripe_charge_id")
+
+  ticketId                 String?             @map("ticket_id")
+  ticketRequestId          String?             @map("ticket_request_id")
+  membershipId             String?             @map("membership_id")
+  refundsPaymentIntentId   String?             @map("refunds_payment_intent_id")
+
+  failureReason            String?             @map("failure_reason")
+  succeededAt              DateTime?           @map("succeeded_at")
+  canceledAt               DateTime?           @map("canceled_at")
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt       @map("updated_at")
+
+  @@unique([stripePaymentIntentId, kind], map: "payment_events_pi_kind_key")
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([stripePaymentIntentId])
+  @@index([stripeCheckoutSessionId])
+  @@map("payment_events")
+}
