@@ -11,7 +11,7 @@ export function Chip({ children, active = false, onClick, className = "" }: Chip
   const cls = ["chip", active ? "chip--active" : "", className].filter(Boolean).join(" ");
   if (onClick) {
     return (
-      <button type="button" className={cls} onClick={onClick}>
+      <button type="button" className={cls} onClick={onClick} aria-pressed={active}>
         {children}
       </button>
     );

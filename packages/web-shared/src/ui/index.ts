@@ -23,6 +23,3 @@ export { GRAIN_TEXTURE } from "./poster/grain";
 
 // Navigation
 export { NavLink } from "./nav/NavLink";
-
-// Theme
-export { readThemeCookie, type Theme } from "./theme/readThemeCookie";

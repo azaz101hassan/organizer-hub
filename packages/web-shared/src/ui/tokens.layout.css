@@ -197,6 +197,17 @@
   animation: rowIn .4s ease both;
 }
 .qrow:last-child { border-bottom: 0; }
+.ticket-row:first-child { border-top: 0; }
+
+.card-link { display: block; }
+.card-link .card {
+  transition: box-shadow .18s ease, transform .18s ease;
+}
+.card-link:hover .card,
+.card-link:focus-visible .card {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
 .qrow--leaving { animation: rowOut .42s ease forwards; }
 @keyframes rowIn { from { transform: translateX(-8px); } to { transform: none; } }
 @keyframes rowOut {

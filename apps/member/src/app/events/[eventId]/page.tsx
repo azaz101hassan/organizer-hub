@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ApiError,
@@ -6,13 +5,23 @@ import {
   publicApiFetch,
   readSession,
   UnauthorizedError,
-  formatDateTime,
 } from "@organizer-hub/web-shared";
 import type {
   CoverageResult,
   PublicEventView,
   TicketTypePublicView,
 } from "@organizer-hub/web-shared";
+import {
+  Card,
+  Chip,
+  Display,
+  Eyebrow,
+  Poster,
+  monogram,
+} from "@organizer-hub/web-shared/ui";
+import { PublicShell } from "../../../components/PublicShell";
+import { Fact } from "../../../components/Fact";
+import { moodFor } from "../../../components/EventCard";
 import TicketRow from "./TicketRow";
 
 export const dynamic = "force-dynamic";
@@ -41,13 +50,15 @@ export default async function PublicEventDetailPage({
     throw err;
   }
 
-  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
+  const session = await readSession({
+    session: "oh_member_session",
+    refresh: "oh_member_refresh",
+    accessToken: "oh_member_access_token",
+  });
   const signedIn = session !== null;
 
   // Coverage is per-user — only fetch if signed in. On any failure (token
-  // expired, api blip) the verdicts default to BUY so the page still renders;
-  // the api re-checks on claim/intake, so showing Buy when CLAIMABLE/AT_CAP was
-  // possible only costs the user a click to refresh.
+  // expired, api blip) the verdicts default to BUY so the page still renders.
   let coverage: Record<string, CoverageResult> = {};
   if (signedIn && ticketTypes.length > 0) {
     const ids = ticketTypes.map((t) => t.id).join(",");
@@ -63,137 +74,151 @@ export default async function PublicEventDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 dark:bg-black">
-      <header className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link
-            href="/"
-            className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+    <PublicShell>
+      {/* Hero poster — full-width, no horizontal container */}
+      <Poster
+        mood={moodFor(event)}
+        label={monogram(event.title)}
+        monoSize={520}
+        style={{ height: 380 }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            zIndex: 2,
+            inset: 0,
+            background:
+              "linear-gradient(180deg, transparent 40%, rgba(0,0,0,.5))",
+          }}
+        />
+      </Poster>
+
+      {/* Sticky-overhang card */}
+      <div
+        className="container container--narrow"
+        style={{ marginTop: -120, position: "relative", zIndex: 3, paddingBottom: 80 }}
+      >
+        <Card style={{ padding: "34px 38px", boxShadow: "var(--shadow-lg)" }}>
+          {/* Label + org row */}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              marginBottom: 14,
+              flexWrap: "wrap",
+            }}
           >
-            OrganizerHub
-          </Link>
-          {signedIn ? (
-            <Link
-              href="/dashboard/membership"
-              className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-            >
-              Membership
-            </Link>
-          ) : (
-            <Link
-              href="/auth/login"
-              className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-            >
-              Sign in
-            </Link>
-          )}
-        </div>
-      </header>
-
-      <div className="max-w-3xl mx-auto px-6 py-10">
-        <Link
-          href="/events"
-          className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-        >
-          ← All events
-        </Link>
-        <div className="mt-2 flex items-start justify-between gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            {event.title}
-          </h1>
-          {event.label && (
-            <span className="mt-2 shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-              {event.label.name}
-            </span>
-          )}
-        </div>
-        <p className="mt-2 text-sm text-zinc-500">
-          Hosted by{" "}
-          <span className="text-zinc-700 dark:text-zinc-300">
-            {event.organization.name}
-          </span>
-        </p>
-
-        <dl className="mt-8 grid gap-4 sm:grid-cols-2">
-          <Fact label="Starts">{formatDateTime(event.startsAt)}</Fact>
-          {event.endsAt && (
-            <Fact label="Ends">{formatDateTime(event.endsAt)}</Fact>
-          )}
-          {event.venue && <Fact label="Venue">{event.venue}</Fact>}
-        </dl>
-
-        {event.description && (
-          <div className="mt-8">
-            <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              About
-            </h2>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
-              {event.description}
-            </p>
+            {event.label && <Chip>{event.label.name}</Chip>}
+            {event.organization && (
+              <Eyebrow muted>{event.organization.name}</Eyebrow>
+            )}
           </div>
-        )}
 
-        <section className="mt-10">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Tickets
-          </h2>
+          {/* Event title */}
+          <Display as="h1" style={{ fontSize: 44, marginBottom: 22 }}>
+            {event.title}
+          </Display>
 
-          {error && (
-            <div className="mt-3 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
-              {error}
+          {/* Fact grid — date / time / venue */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 18,
+              paddingBottom: 26,
+              borderBottom: "1px solid var(--line)",
+            }}
+          >
+            <Fact icon="calendar" label="Date">
+              {new Date(event.startsAt).toLocaleDateString()}
+            </Fact>
+            <Fact icon="clock" label="Time">
+              {new Date(event.startsAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </Fact>
+            <Fact icon="pin" label="Venue">
+              {event.venue ?? "TBA"}
+            </Fact>
+          </div>
+
+          {/* Description */}
+          {event.description && (
+            <div
+              style={{
+                padding: "26px 0",
+                borderBottom: "1px solid var(--line)",
+              }}
+            >
+              <Eyebrow muted>About</Eyebrow>
+              <p
+                style={{
+                  fontSize: 16,
+                  lineHeight: 1.65,
+                  marginTop: 10,
+                  whiteSpace: "pre-wrap",
+                  maxWidth: "65ch",
+                }}
+              >
+                {event.description}
+              </p>
             </div>
           )}
 
-          {ticketTypes.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500">
-              Tickets aren&apos;t on sale yet — check back soon.
-            </p>
-          ) : (
-            <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-              {ticketTypes.map((tt) => (
-                <TicketRow
-                  key={tt.id}
-                  eventId={eventId}
-                  ticketType={tt}
-                  coverage={coverage[tt.id] ?? { verdict: "BUY" }}
-                  signedIn={signedIn}
-                />
-              ))}
-            </ul>
-          )}
+          {/* Tickets section */}
+          <div style={{ paddingTop: 24 }}>
+            <Eyebrow muted>Tickets</Eyebrow>
 
-          {!signedIn && ticketTypes.some((t) => t.minTierLevel > 0) && (
-            <p className="mt-3 text-xs text-zinc-500">
-              <Link
-                href="/membership"
-                className="text-blue-600 hover:underline"
+            {error && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bad-soft)",
+                  color: "var(--bad)",
+                  fontSize: 14,
+                }}
               >
-                Become a member
-              </Link>{" "}
-              to claim covered tickets for free.
-            </p>
-          )}
-        </section>
-      </div>
-    </main>
-  );
-}
+                {error}
+              </div>
+            )}
 
-function Fact({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        {label}
-      </dt>
-      <dd className="mt-1 text-sm text-zinc-900 dark:text-zinc-50">
-        {children}
-      </dd>
-    </div>
+            {ticketTypes.length === 0 ? (
+              <p className="muted" style={{ marginTop: 12 }}>
+                Tickets aren&apos;t on sale yet — check back soon.
+              </p>
+            ) : (
+              <Card
+                style={{ marginTop: 12, overflow: "hidden", padding: 0 }}
+              >
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {ticketTypes.map((tt) => (
+                    <TicketRow
+                      key={tt.id}
+                      eventId={eventId}
+                      ticketType={tt}
+                      coverage={coverage[tt.id] ?? { verdict: "BUY" }}
+                      signedIn={signedIn}
+                    />
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {!signedIn && ticketTypes.some((t) => t.minTierLevel > 0) && (
+              <p style={{ marginTop: 12, fontSize: 13, color: "var(--muted)" }}>
+                <a href="/membership" className="link">
+                  Become a member
+                </a>{" "}
+                to claim covered tickets for free.
+              </p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </PublicShell>
   );
 }
