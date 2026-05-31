@@ -126,13 +126,7 @@ export default async function HomePage() {
               All events →
             </Link>
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 22,
-            }}
-          >
+          <div className="grid-3-narrow">
             {featured.map((event) => (
               <EventCard key={event.id} event={event} />
             ))}

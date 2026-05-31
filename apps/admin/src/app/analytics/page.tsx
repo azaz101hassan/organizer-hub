@@ -58,6 +58,35 @@ export default async function AnalyticsPage() {
       .reduce((s, e) => s + Math.max(0, e.amountCents), 0),
   }));
 
+  if (events.length === 0) {
+    return (
+      <>
+        <PageHead
+          crumb={
+            <>
+              <Icon name="home" size={13} /> OrganizerHub{" "}
+              <Icon name="chevR" size={12} /> Analytics
+            </>
+          }
+          title="Analytics"
+          sub="No payment data yet."
+        />
+        <div
+          className="card"
+          style={{
+            padding: "56px 24px",
+            textAlign: "center",
+            borderStyle: "dashed",
+          }}
+        >
+          <p className="muted" style={{ fontSize: 14 }}>
+            No transactions recorded yet. Data will appear here once payments come in.
+          </p>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHead

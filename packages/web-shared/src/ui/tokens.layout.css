@@ -255,14 +255,36 @@
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px; border: 3px solid var(--bg); }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* Global focus ring — applies to interactive elements without their own focus styling */
+:where(button, a, [role="button"], [role="tab"], [role="radio"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+  border-radius: var(--btn-radius);
+}
+
+/* Responsive grid utilities */
+.grid-3-narrow {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+  .grid-3-narrow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .grid-3-narrow { grid-template-columns: 1fr; }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; }
   .fade-in,
   .qrow,
   .qrow--leaving,
   .scrim,
   .modal,
-  .toast {
+  .toast,
+  .ad__menu {
     animation: none;
   }
   .btn { transition: none; }

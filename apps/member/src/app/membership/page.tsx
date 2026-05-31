@@ -95,10 +95,8 @@ export default async function MembershipPage({ searchParams }: PageProps) {
         )}
 
         <div
+          className="grid-3-narrow"
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 22,
             marginTop: 44,
             textAlign: "left",
           }}
