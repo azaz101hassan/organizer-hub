@@ -1,7 +1,24 @@
 import Link from "next/link";
-import type { RequesterTicketRequestView } from "@organizer-hub/web-shared";
+import type { RequesterTicketRequestView, TicketRequestStatus } from "@organizer-hub/web-shared";
 import { formatDateTime } from "@organizer-hub/web-shared";
-import { RequestStatusBadge } from "./RequestStatusBadge";
+import { Badge } from "@organizer-hub/web-shared/ui";
+import type { BadgeTone } from "@organizer-hub/web-shared/ui";
+
+const STATUS_LABEL: Record<TicketRequestStatus, string> = {
+  PENDING: "Pending",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  CANCELLED_BY_USER: "Cancelled",
+  EXPIRED: "Expired",
+};
+
+const STATUS_TONE: Record<TicketRequestStatus, BadgeTone> = {
+  PENDING: "featured",
+  APPROVED: "published",
+  REJECTED: "cancelled",
+  CANCELLED_BY_USER: "draft",
+  EXPIRED: "draft",
+};
 
 export default function RequestList({
   requests,
@@ -9,18 +26,40 @@ export default function RequestList({
   requests: RequesterTicketRequestView[];
 }) {
   return (
-    <ul className="mt-6 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-      {requests.map((r) => (
-        <li key={r.id}>
+    <ul
+      style={{
+        margin: 0,
+        padding: 0,
+        listStyle: "none",
+        borderRadius: "var(--radius-lg)",
+        border: "1px solid var(--line)",
+        background: "var(--surface)",
+        overflow: "hidden",
+      }}
+    >
+      {requests.map((r, i) => (
+        <li
+          key={r.id}
+          style={i > 0 ? { borderTop: "1px solid var(--line)" } : undefined}
+        >
           <Link
             href={`/dashboard/requests/${r.id}`}
-            className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "14px 20px",
+              transition: "background .15s ease",
+            }}
+            className="request-row"
           >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>
                 {r.event.title}
               </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
+              <p className="faint" style={{ margin: "3px 0 0", fontSize: 12 }}>
                 {r.ticketTypeName}
                 {" · "}
                 {r.intent === "PAID" ? "Paid" : "Free"}
@@ -28,7 +67,9 @@ export default function RequestList({
                 requested {formatDateTime(r.createdAt)}
               </p>
             </div>
-            <RequestStatusBadge status={r.status} />
+            <Badge tone={STATUS_TONE[r.status]}>
+              {STATUS_LABEL[r.status]}
+            </Badge>
           </Link>
         </li>
       ))}

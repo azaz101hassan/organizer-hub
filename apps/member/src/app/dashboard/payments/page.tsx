@@ -5,6 +5,7 @@ import {
   listPaymentEvents,
   type PaymentEventListPage,
 } from "@organizer-hub/web-shared";
+import { Display, Eyebrow, Lede } from "@organizer-hub/web-shared/ui";
 import PaymentsList from "./PaymentsList";
 
 interface SearchParams {
@@ -33,14 +34,13 @@ export default async function MyPaymentsPage({
   }
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          My payments
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Every charge, renewal, refund, and dispute on your account.
-        </p>
-      </div>
+      <Eyebrow muted style={{ marginBottom: 8 }}>Account</Eyebrow>
+      <Display as="h1" size="lg" style={{ marginBottom: 8 }}>
+        My payments
+      </Display>
+      <Lede style={{ marginBottom: 32, fontSize: 15 }}>
+        Every charge, renewal, refund, and dispute on your account.
+      </Lede>
       <PaymentsList
         items={page.items}
         nextCursor={page.nextCursor}

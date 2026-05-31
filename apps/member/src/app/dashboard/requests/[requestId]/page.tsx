@@ -1,14 +1,38 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError, formatDateTime, formatTimeUntil } from "@organizer-hub/web-shared";
+import {
+  ApiError,
+  apiFetch,
+  UnauthorizedError,
+  formatDateTime,
+  formatTimeUntil,
+} from "@organizer-hub/web-shared";
 import type {
   PaymentLinkView,
   RequesterTicketRequestView,
+  TicketRequestStatus,
 } from "@organizer-hub/web-shared";
+import { Badge, Card, Display, Eyebrow } from "@organizer-hub/web-shared/ui";
+import type { BadgeTone } from "@organizer-hub/web-shared/ui";
 import { CancelRequestButton } from "../CancelRequestButton";
-import { RequestStatusBadge } from "../RequestStatusBadge";
 
 export const dynamic = "force-dynamic";
+
+const STATUS_LABEL: Record<TicketRequestStatus, string> = {
+  PENDING: "Pending",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  CANCELLED_BY_USER: "Cancelled",
+  EXPIRED: "Expired",
+};
+
+const STATUS_TONE: Record<TicketRequestStatus, BadgeTone> = {
+  PENDING: "featured",
+  APPROVED: "published",
+  REJECTED: "cancelled",
+  CANCELLED_BY_USER: "draft",
+  EXPIRED: "draft",
+};
 
 export default async function RequestDetailPage({
   params,
@@ -29,9 +53,6 @@ export default async function RequestDetailPage({
   const awaitingPayment =
     req.intent === "PAID" && req.status === "APPROVED" && !req.hasTicket;
 
-  // Only this one state has a live Checkout link — fetch it server-side (the
-  // web holds no Stripe secret). Best-effort: if the lookup fails the page
-  // still renders, just without the button.
   let paymentLink: PaymentLinkView | null = null;
   if (awaitingPayment) {
     try {
@@ -47,34 +68,37 @@ export default async function RequestDetailPage({
     <div>
       <Link
         href="/dashboard/requests"
-        className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="faint"
+        style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 20 }}
       >
         ← All requests
       </Link>
 
-      <div className="mt-3 flex items-start justify-between gap-4">
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 8 }}>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            {req.event.title}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {req.ticketTypeName}
-            {" · "}
-            {req.intent === "PAID" ? "Paid" : "Free claim"}
-            {" · "}
-            event {formatDateTime(req.event.startsAt)}
-          </p>
+          <Eyebrow muted style={{ marginBottom: 8 }}>Request</Eyebrow>
+          <Display as="h1" size="md">{req.event.title}</Display>
         </div>
-        <RequestStatusBadge status={req.status} />
+        <Badge tone={STATUS_TONE[req.status]}>
+          {STATUS_LABEL[req.status]}
+        </Badge>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+      <p className="muted" style={{ fontSize: 13, marginBottom: 24 }}>
+        {req.ticketTypeName}
+        {" · "}
+        {req.intent === "PAID" ? "Paid" : "Free claim"}
+        {" · "}
+        event {formatDateTime(req.event.startsAt)}
+      </p>
+
+      <Card padded>
         <StateBody
           req={req}
           awaitingPayment={awaitingPayment}
           paymentLink={paymentLink}
         />
-      </div>
+      </Card>
     </div>
   );
 }
@@ -90,8 +114,8 @@ function StateBody({
 }) {
   if (req.status === "PENDING") {
     return (
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <p style={{ fontSize: 14, margin: 0 }}>
           Your request is in the organizer&apos;s queue. We&apos;ll email you
           when they respond.
         </p>
@@ -102,29 +126,24 @@ function StateBody({
 
   if (req.status === "APPROVED" && req.hasTicket) {
     return (
-      <p className="text-sm text-emerald-700 dark:text-emerald-300">
+      <p style={{ fontSize: 14, color: "var(--good)", margin: 0 }}>
         Approved — your ticket has been issued. See it in your tickets.
       </p>
     );
   }
 
   if (awaitingPayment) {
-    // Approved, awaiting payment. A live link → primary CTA + expiry; a missing
-    // / expired link → the window has closed.
     if (paymentLink?.url) {
       return (
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <p style={{ fontSize: 14, margin: 0 }}>
             You&apos;re approved! Complete payment to lock in your ticket.
           </p>
-          <a
-            href={paymentLink.url}
-            className="inline-flex w-fit items-center rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-500 transition"
-          >
+          <a href={paymentLink.url} className="btn btn--primary btn--sm" style={{ width: "fit-content" }}>
             Complete payment
           </a>
           {paymentLink.expiresAt && (
-            <p className="text-xs text-zinc-500">
+            <p className="faint" style={{ fontSize: 12, margin: 0 }}>
               Payment link expires in {formatTimeUntil(paymentLink.expiresAt)}.
             </p>
           )}
@@ -132,13 +151,14 @@ function StateBody({
       );
     }
     return (
-      <div className="flex flex-col gap-3">
-        <p className="text-sm text-zinc-700 dark:text-zinc-300">
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ fontSize: 14, margin: 0 }}>
           Your payment window has closed.
         </p>
         <Link
           href={`/events/${req.eventId}`}
-          className="inline-flex w-fit items-center rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-500 transition"
+          className="btn btn--primary btn--sm"
+          style={{ width: "fit-content" }}
         >
           Request a new spot
         </Link>
@@ -148,7 +168,7 @@ function StateBody({
 
   if (req.status === "REJECTED") {
     return (
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+      <p className="muted" style={{ fontSize: 14, margin: 0 }}>
         This request was declined by the organizer.
       </p>
     );
@@ -156,7 +176,7 @@ function StateBody({
 
   if (req.status === "CANCELLED_BY_USER") {
     return (
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+      <p className="muted" style={{ fontSize: 14, margin: 0 }}>
         You cancelled this request.
       </p>
     );
@@ -164,13 +184,14 @@ function StateBody({
 
   // EXPIRED
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p className="muted" style={{ fontSize: 14, margin: 0 }}>
         Your payment window closed before this request was paid.
       </p>
       <Link
         href={`/events/${req.eventId}`}
-        className="inline-flex w-fit items-center rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-500 transition"
+        className="btn btn--primary btn--sm"
+        style={{ width: "fit-content" }}
       >
         Request a new spot
       </Link>

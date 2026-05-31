@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { Icon, NavItem } from "@organizer-hub/web-shared/ui";
+import { ThemeSwitcher } from "@organizer-hub/web-shared/ui/theme";
 import type { SessionIdentity } from "@organizer-hub/web-shared";
+import type { Theme } from "@organizer-hub/web-shared/ui/theme";
 
-export function DashSidebar({ session }: { session: SessionIdentity }) {
+export function DashSidebar({
+  session,
+  currentTheme,
+}: {
+  session: SessionIdentity;
+  currentTheme: Theme;
+}) {
   const displayName = session.name ?? session.email ?? session.sub ?? "";
   const initials =
     displayName
@@ -39,6 +47,23 @@ export function DashSidebar({ session }: { session: SessionIdentity }) {
       <NavItem href="/dashboard/payments" icon="layers">
         Payments
       </NavItem>
+
+      {/* Theme switcher section */}
+      <div
+        style={{
+          marginTop: 16,
+          paddingTop: 14,
+          borderTop: "1px solid var(--line)",
+        }}
+      >
+        <p
+          className="eyebrow eyebrow--muted"
+          style={{ paddingLeft: 6, marginBottom: 8 }}
+        >
+          Theme
+        </p>
+        <ThemeSwitcher cookieName="oh_member_theme" current={currentTheme} />
+      </div>
 
       <div
         style={{

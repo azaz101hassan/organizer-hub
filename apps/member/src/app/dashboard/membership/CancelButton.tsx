@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Button } from "@organizer-hub/web-shared/ui";
 import { cancelMembership, type CancelState } from "./actions";
 
 const initial: CancelState = {};
@@ -9,9 +10,11 @@ export function CancelButton() {
   const [state, formAction, pending] = useActionState(cancelMembership, initial);
 
   return (
-    <form action={formAction} className="flex flex-col gap-2">
-      <button
+    <form action={formAction} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <Button
         type="submit"
+        variant="danger"
+        size="sm"
         disabled={pending}
         onClick={(e) => {
           if (
@@ -22,12 +25,11 @@ export function CancelButton() {
             e.preventDefault();
           }
         }}
-        className="rounded-full border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-2 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 transition disabled:opacity-50"
       >
         {pending ? "Cancelling…" : "Cancel membership"}
-      </button>
+      </Button>
       {state.error && (
-        <p className="text-xs text-red-700 dark:text-red-300">{state.error}</p>
+        <p style={{ fontSize: 12, color: "var(--bad)", margin: 0 }}>{state.error}</p>
       )}
     </form>
   );

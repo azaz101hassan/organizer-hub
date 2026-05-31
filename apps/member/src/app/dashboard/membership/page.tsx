@@ -5,6 +5,8 @@ import type {
   MembershipView,
   SubscriptionStatus,
 } from "@organizer-hub/web-shared";
+import { Card, Badge, Display, Eyebrow } from "@organizer-hub/web-shared/ui";
+import type { BadgeTone } from "@organizer-hub/web-shared/ui";
 import { CancelButton } from "./CancelButton";
 
 const STATUS_LABEL: Record<SubscriptionStatus, string> = {
@@ -18,20 +20,16 @@ const STATUS_LABEL: Record<SubscriptionStatus, string> = {
   PAUSED: "Paused",
 };
 
-const STATUS_BADGE: Record<SubscriptionStatus, string> = {
-  ACTIVE:
-    "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
-  TRIALING:
-    "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300",
-  PAST_DUE: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300",
-  CANCELED: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
-  UNPAID: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300",
-  INCOMPLETE:
-    "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300",
-  INCOMPLETE_EXPIRED:
-    "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
-  PAUSED:
-    "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
+// Map subscription status to Badge tone
+const STATUS_TONE: Record<SubscriptionStatus, BadgeTone> = {
+  ACTIVE: "published",
+  TRIALING: "published",
+  PAST_DUE: "cancelled",
+  CANCELED: "cancelled",
+  UNPAID: "cancelled",
+  INCOMPLETE: "draft",
+  INCOMPLETE_EXPIRED: "cancelled",
+  PAUSED: "draft",
 };
 
 const CANCELLABLE: ReadonlySet<SubscriptionStatus> = new Set([
@@ -52,20 +50,18 @@ export default async function DashboardMembershipPage() {
   if (!membership) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Membership
-        </h1>
-        <div className="mt-6 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-10 text-center">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+        <Eyebrow muted style={{ marginBottom: 10 }}>Membership</Eyebrow>
+        <Display as="h1" size="lg" style={{ marginBottom: 32 }}>
+          Your membership
+        </Display>
+        <Card style={{ padding: "40px 32px", textAlign: "center", borderStyle: "dashed" }}>
+          <p className="muted" style={{ fontSize: 14, marginBottom: 20 }}>
             You don&apos;t have an active membership.
           </p>
-          <Link
-            href="/membership"
-            className="mt-4 inline-block rounded-full bg-blue-600 text-white px-5 py-2 text-sm font-medium hover:bg-blue-500 transition"
-          >
+          <Link href="/membership" className="btn btn--primary btn--sm">
             Browse plans
           </Link>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -78,72 +74,72 @@ export default async function DashboardMembershipPage() {
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Membership
-        </h1>
-        <Link
-          href="/membership"
-          className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-        >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 32 }}>
+        <div>
+          <Eyebrow muted style={{ marginBottom: 8 }}>Membership</Eyebrow>
+          <Display as="h1" size="lg">Your membership</Display>
+        </div>
+        <Link href="/membership" className="muted link" style={{ fontSize: 12 }}>
           See all plans →
         </Link>
       </div>
 
       {membership.status === "PAST_DUE" && (
-        <div className="mb-6 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 p-4 text-sm text-red-700 dark:text-red-300">
+        <div
+          style={{
+            marginBottom: 24,
+            padding: "14px 18px",
+            borderRadius: "var(--radius-lg)",
+            border: "1px solid color-mix(in oklab, var(--bad) 40%, transparent)",
+            background: "var(--bad-soft)",
+            color: "var(--bad)",
+            fontSize: 13.5,
+          }}
+        >
           Your last payment failed. Update your payment method to keep
           coverage — Stripe will retry automatically.
         </div>
       )}
 
-      <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-        <div className="flex items-start justify-between gap-4">
+      <Card padded>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
-              Current tier
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              {tierLabel}
-            </h2>
+            <Eyebrow muted style={{ marginBottom: 6 }}>Current tier</Eyebrow>
+            <Display as="h2" size="md">{tierLabel}</Display>
           </div>
-          <span
-            className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-wide ${STATUS_BADGE[membership.status]}`}
-          >
+          <Badge tone={STATUS_TONE[membership.status]}>
             {STATUS_LABEL[membership.status]}
-          </span>
+          </Badge>
         </div>
 
-        <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+        <hr className="rule" style={{ margin: "20px 0" }} />
+
+        <dl style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
           <div>
-            <dt className="text-xs text-zinc-500">
+            <dt className="eyebrow eyebrow--muted" style={{ marginBottom: 6 }}>
               {cancelling ? "Cancels on" : "Renews on"}
             </dt>
-            <dd className="mt-1 text-sm text-zinc-900 dark:text-zinc-50">
-              {periodEnd}
-            </dd>
+            <dd style={{ margin: 0, fontSize: 14 }}>{periodEnd}</dd>
           </div>
           <div>
-            <dt className="text-xs text-zinc-500">Last updated</dt>
-            <dd className="mt-1 text-sm text-zinc-900 dark:text-zinc-50">
-              {formatDateTime(membership.updatedAt)}
-            </dd>
+            <dt className="eyebrow eyebrow--muted" style={{ marginBottom: 6 }}>Last updated</dt>
+            <dd style={{ margin: 0, fontSize: 14 }}>{formatDateTime(membership.updatedAt)}</dd>
           </div>
         </dl>
 
         {cancelling && (
-          <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="muted" style={{ marginTop: 16, fontSize: 13 }}>
             You&apos;ve scheduled cancellation. Access continues until{" "}
             {periodEnd}.
           </p>
         )}
 
         {CANCELLABLE.has(membership.status) && !cancelling && (
-          <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--line)" }}>
             <CancelButton />
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

@@ -199,6 +199,7 @@
 }
 .qrow:last-child { border-bottom: 0; }
 .ticket-row:first-child { border-top: 0; }
+.request-row:hover { background: var(--surface-2); }
 
 .card-link { display: block; }
 .card-link .card {

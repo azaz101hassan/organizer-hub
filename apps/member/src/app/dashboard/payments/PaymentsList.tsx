@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { PaymentEventView } from "@organizer-hub/web-shared";
+import { Pill } from "@organizer-hub/web-shared/ui";
+import type { PillTone } from "@organizer-hub/web-shared/ui";
 
 interface ListParams {
   cursor?: string;
@@ -13,6 +15,24 @@ const KIND_LABEL: Record<string, string> = {
   REFUND: "Refund",
   DISPUTE: "Dispute",
 };
+
+// Map payment status to Pill tone
+function statusTone(status: string): PillTone {
+  switch (status) {
+    case "SUCCEEDED":
+      return "paid";
+    case "PENDING":
+      return "pending";
+    case "FAILED":
+      return "refunded";
+    case "CANCELED":
+      return "lapsed";
+    case "REFUNDED":
+      return "refunded";
+    default:
+      return "lapsed";
+  }
+}
 
 function fmtAmount(cents: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -40,11 +60,19 @@ export default function PaymentsList({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 px-6 py-10 text-center text-sm text-zinc-500">
-        No payments yet.
+      <div
+        style={{
+          borderRadius: "var(--radius-lg)",
+          border: "1px dashed var(--line-strong)",
+          padding: "40px 32px",
+          textAlign: "center",
+        }}
+      >
+        <p className="muted" style={{ fontSize: 14, margin: 0 }}>No payments yet.</p>
       </div>
     );
   }
+
   const nextHref = (() => {
     if (!nextCursor) return null;
     const qs = new URLSearchParams();
@@ -54,30 +82,52 @@ export default function PaymentsList({
     qs.set("cursor", nextCursor);
     return `/dashboard/payments?${qs.toString()}`;
   })();
+
   return (
     <div>
-      <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-        {items.map((p) => (
+      <ul
+        style={{
+          margin: 0,
+          padding: 0,
+          listStyle: "none",
+          borderRadius: "var(--radius-lg)",
+          border: "1px solid var(--line)",
+          background: "var(--surface)",
+          overflow: "hidden",
+        }}
+      >
+        {items.map((p, i) => (
           <li
             key={p.id}
-            className="px-5 py-4 grid grid-cols-[110px_1fr_100px_120px] items-baseline gap-4"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "110px 1fr auto auto",
+              alignItems: "center",
+              gap: 16,
+              padding: "13px 20px",
+              borderTop: i > 0 ? "1px solid var(--line)" : undefined,
+            }}
           >
-            <span className="text-xs text-zinc-500">{fmtDate(p.createdAt)}</span>
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">
-              <span className="font-medium text-zinc-900 dark:text-zinc-50">
+            <span className="faint" style={{ fontSize: 12 }}>{fmtDate(p.createdAt)}</span>
+            <span style={{ fontSize: 13.5, minWidth: 0 }}>
+              <span style={{ fontWeight: 600 }}>
                 {KIND_LABEL[p.kind] ?? p.kind}
               </span>
               {p.description ? (
-                <span className="text-zinc-500"> — {p.description}</span>
+                <span className="muted"> — {p.description}</span>
               ) : null}
             </span>
-            <StatusBadge status={p.status} />
+            <Pill tone={statusTone(p.status)}>
+              {p.status.charAt(0) + p.status.slice(1).toLowerCase()}
+            </Pill>
             <span
-              className={`text-sm text-right font-mono tabular-nums ${
-                p.amountCents < 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-zinc-900 dark:text-zinc-50"
-              }`}
+              className="mono"
+              style={{
+                fontSize: 13.5,
+                textAlign: "right",
+                color: p.amountCents < 0 ? "var(--bad)" : "var(--ink)",
+                whiteSpace: "nowrap",
+              }}
             >
               {fmtAmount(p.amountCents, p.currency)}
             </span>
@@ -85,35 +135,12 @@ export default function PaymentsList({
         ))}
       </ul>
       {nextHref && (
-        <div className="mt-4">
-          <Link
-            href={nextHref}
-            className="text-sm font-medium text-blue-600 hover:underline"
-          >
+        <div style={{ marginTop: 16 }}>
+          <Link href={nextHref} className="link" style={{ fontSize: 13.5 }}>
             Next page →
           </Link>
         </div>
       )}
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const cls =
-    status === "SUCCEEDED"
-      ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-      : status === "PENDING"
-        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-        : status === "FAILED"
-          ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
-          : status === "CANCELED"
-            ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-  return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
-    >
-      {status}
-    </span>
   );
 }
