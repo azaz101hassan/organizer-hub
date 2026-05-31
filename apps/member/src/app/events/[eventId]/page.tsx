@@ -18,10 +18,10 @@ import {
   Eyebrow,
   Poster,
   monogram,
+  moodFor,
 } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../../components/PublicShell";
 import { Fact } from "../../../components/Fact";
-import { moodFor } from "../../../components/EventCard";
 import TicketRow from "./TicketRow";
 
 export const dynamic = "force-dynamic";

@@ -20,6 +20,7 @@ export { Icon, type IconName } from "./icons/Icon";
 export { Poster, type Mood } from "./poster/Poster";
 export { MOODS, monogram } from "./poster/moods";
 export { GRAIN_TEXTURE } from "./poster/grain";
+export { moodFor } from "./poster/moodFor";
 
 // Charts + data primitives
 export { BarChart, type BarDatum, type BarChartProps } from "./charts/BarChart";
@@ -28,6 +29,8 @@ export { Sparkline, type SparklineProps } from "./charts/Sparkline";
 export { Progress, type ProgressProps } from "./charts/Progress";
 export { Trend, type TrendProps } from "./charts/Trend";
 export { Segmented, type SegmentedOption, type SegmentedProps } from "./data/Segmented";
+export { DataTable, type Column, type DataTableProps } from "./data/DataTable";
+export { Toolbar, type ToolbarProps } from "./data/Toolbar";
 
 // Navigation
 export { NavLink } from "./nav/NavLink";

@@ -1,18 +1,26 @@
+import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import {
+  ApiError,
+  apiFetch,
+  getHouseOrgId,
+  UnauthorizedError,
+} from "@organizer-hub/web-shared";
+import type { EventView, OrganizationView } from "@organizer-hub/web-shared";
+import {
+  DataTable,
+  type Column,
+  Icon,
+  StatusBadge,
+} from "@organizer-hub/web-shared/ui";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { ApiError, apiFetch, UnauthorizedError, formatDateTime, getHouseOrgId } from "@organizer-hub/web-shared";
-import type { EventStatus, EventView, OrganizationView } from "@organizer-hub/web-shared";
+import { PageHead } from "../../components/PageHead";
+import { Thumb } from "../../components/Thumb";
 
-const STATUS_BADGE: Record<EventStatus, string> = {
-  DRAFT: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
-  PUBLISHED:
-    "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
-  CANCELLED: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300",
-};
+export const dynamic = "force-dynamic";
 
-export default async function OrganizationPage() {
+export default async function AdminEventsPage() {
   const orgId = getHouseOrgId();
-
   let org: OrganizationView;
   let events: EventView[];
   try {
@@ -28,93 +36,79 @@ export default async function OrganizationPage() {
 
   const canMutate = org.role === "OWNER" || org.role === "ADMIN";
 
-  return (
-    <div>
-      <div className="mb-8">
-        <div className="flex items-baseline justify-between gap-4">
+  const columns: Column<EventView>[] = [
+    {
+      key: "title",
+      header: "Event",
+      cell: (e) => (
+        <Link
+          href={`/events/${e.id}`}
+          className="cellface"
+          style={{ color: "inherit" }}
+        >
+          <Thumb event={e} />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              {org.name}
-            </h1>
-            {org.description && (
-              <p className="mt-1 text-sm text-zinc-500">{org.description}</p>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
+            {e.venue && (
+              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                {e.venue}
+              </div>
             )}
           </div>
-          <span className="shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-            {org.role}
-          </span>
-        </div>
-        {canMutate && (
-          <div className="mt-3">
-            <Link
-              href="/requests"
-              className="text-xs text-blue-600 hover:underline"
-            >
-              Ticket requests →
-            </Link>
-          </div>
-        )}
-      </div>
+        </Link>
+      ),
+    },
+    {
+      key: "date",
+      header: "Date",
+      width: 160,
+      cell: (e) => (
+        <span className="muted" style={{ fontSize: 13 }}>
+          {new Date(e.startsAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: 120,
+      cell: (e) => <StatusBadge status={e.status} />,
+    },
+  ];
 
-      <section>
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+  return (
+    <>
+      <PageHead
+        crumb={
+          <>
+            <Icon name="home" size={13} />
+            {org.name}
+            <Icon name="chevR" size={12} />
             Events
-          </h2>
-          {canMutate && (
+          </>
+        }
+        title="Events"
+        sub={`${events.length} ${events.length === 1 ? "event" : "events"}`}
+        actions={
+          canMutate ? (
             <Link
               href="/events/new"
-              className="rounded-full bg-zinc-900 dark:bg-zinc-100 text-zinc-50 dark:text-zinc-900 px-4 py-1.5 text-xs font-medium hover:bg-zinc-700 dark:hover:bg-zinc-300 transition"
+              className="btn btn--primary btn--sm"
             >
-              New event
+              <Icon name="plus" size={15} /> New event
             </Link>
-          )}
-        </div>
-
-        {events.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-8 text-center text-sm text-zinc-500">
-            No events yet.
-            {canMutate && (
-              <>
-                {" "}
-                <Link
-                  href="/events/new"
-                  className="text-blue-600 hover:underline"
-                >
-                  Create the first one
-                </Link>
-                .
-              </>
-            )}
-          </div>
-        ) : (
-          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            {events.map((event) => (
-              <li key={event.id}>
-                <Link
-                  href={`/events/${event.id}`}
-                  className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                      {event.title}
-                    </p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      {formatDateTime(event.startsAt)}
-                      {event.venue && ` · ${event.venue}`}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_BADGE[event.status]}`}
-                  >
-                    {event.status}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
+          ) : undefined
+        }
+      />
+      <DataTable
+        columns={columns}
+        rows={events}
+        empty="No events yet. Create the first one."
+      />
+    </>
   );
 }

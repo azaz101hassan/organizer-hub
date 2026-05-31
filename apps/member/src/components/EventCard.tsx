@@ -7,27 +7,9 @@ import {
   Icon,
   Poster,
   monogram,
-  type Mood,
+  moodFor,
 } from "@organizer-hub/web-shared/ui";
 import type { PublicEventView } from "@organizer-hub/web-shared";
-
-const MOOD_BY_INDEX: Mood[] = [
-  "midnight",
-  "plum",
-  "forest",
-  "sand",
-  "oxblood",
-  "ember",
-  "teal",
-];
-
-export function moodFor(event: PublicEventView): Mood {
-  let h = 0;
-  for (let i = 0; i < event.id.length; i++) {
-    h = (h * 31 + event.id.charCodeAt(i)) | 0;
-  }
-  return MOOD_BY_INDEX[Math.abs(h) % MOOD_BY_INDEX.length];
-}
 
 function fmtShortDate(iso: string): string {
   const d = new Date(iso);

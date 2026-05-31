@@ -6,6 +6,7 @@ import {
   listPaymentEvents,
   type PaymentEventListPage,
 } from "@organizer-hub/web-shared";
+import { PageHead } from "../../components/PageHead";
 import Filters from "./Filters";
 import TransactionsTable from "./TransactionsTable";
 
@@ -40,21 +41,17 @@ export default async function TransactionsPage({
   }
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Transactions
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          All payments, refunds, and disputes mirrored from Stripe.
-        </p>
-      </div>
+    <>
+      <PageHead
+        title="Transactions"
+        sub="Payments, refunds, and disputes mirrored from Stripe."
+      />
       <Filters params={params} orgId={orgId} />
       <TransactionsTable
         items={page.items}
         nextCursor={page.nextCursor}
         params={params}
       />
-    </div>
+    </>
   );
 }

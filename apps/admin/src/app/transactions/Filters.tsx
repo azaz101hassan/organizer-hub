@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Toolbar } from "@organizer-hub/web-shared/ui";
 
 const KINDS = [
   "TICKET",
@@ -45,35 +46,32 @@ export default function Filters({
   })();
 
   return (
-    <div className="mb-6 space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <Chip href={hrefWith("kind", undefined)} active={!params.kind}>
+    <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+      <Toolbar>
+        <FilterChip href={hrefWith("kind", undefined)} active={!params.kind}>
           All kinds
-        </Chip>
+        </FilterChip>
         {KINDS.map((k) => (
-          <Chip key={k} href={hrefWith("kind", k)} active={params.kind === k}>
+          <FilterChip key={k} href={hrefWith("kind", k)} active={params.kind === k}>
             {k}
-          </Chip>
+          </FilterChip>
         ))}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Chip href={hrefWith("status", undefined)} active={!params.status}>
+      </Toolbar>
+      <Toolbar>
+        <FilterChip href={hrefWith("status", undefined)} active={!params.status}>
           All statuses
-        </Chip>
+        </FilterChip>
         {STATUSES.map((s) => (
-          <Chip
-            key={s}
-            href={hrefWith("status", s)}
-            active={params.status === s}
-          >
+          <FilterChip key={s} href={hrefWith("status", s)} active={params.status === s}>
             {s}
-          </Chip>
+          </FilterChip>
         ))}
-      </div>
+      </Toolbar>
       <a
         href={csvHref}
         download
-        className="inline-block text-xs font-medium text-blue-600 hover:underline"
+        className="link"
+        style={{ fontSize: 12.5, alignSelf: "flex-start" }}
       >
         Export CSV →
       </a>
@@ -81,7 +79,7 @@ export default function Filters({
   );
 }
 
-function Chip({
+function FilterChip({
   href,
   active,
   children,
@@ -91,14 +89,7 @@ function Chip({
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      href={href}
-      className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
-        active
-          ? "bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-50 dark:text-zinc-900 dark:border-zinc-50"
-          : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-800 dark:hover:bg-zinc-800"
-      }`}
-    >
+    <Link href={href} className={active ? "chip chip--active" : "chip"}>
       {children}
     </Link>
   );
