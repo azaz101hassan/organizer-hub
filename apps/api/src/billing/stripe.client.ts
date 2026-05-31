@@ -4,10 +4,12 @@ import StripeFactory from 'stripe';
 import type { Stripe } from './stripe-types';
 
 // Pinned API version. Stripe's API behavior is version-locked at construction;
-// upgrading is opt-in. Phase 3 chose `2026-04-22.dahlia` because subscription
-// `current_period_end` moved off the top-level Subscription onto each item in
-// `2025-03-31.basil` — every read in syncStripeData() expects that shape.
-const STRIPE_API_VERSION = '2026-04-22.dahlia';
+// upgrading is opt-in. We track Stripe SDK v22's accepted `.dahlia` version
+// (currently `2026-05-27.dahlia`) — `.dahlia` is the same release track as the
+// earlier `2026-04-22.dahlia` we pinned for Phase 3, so the subscription shape
+// stays the same (`current_period_end` on each subscription item, the layout
+// that syncStripeData() reads); upgrading within the codename is non-breaking.
+const STRIPE_API_VERSION = '2026-05-27.dahlia';
 
 // Convention for outbound POSTs that this codebase makes against Stripe: every
 // `stripe.X.create(...)` call passes an idempotency key derived deterministically

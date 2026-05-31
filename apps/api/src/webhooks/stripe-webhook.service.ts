@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  PaymentEventKind,
+  PaymentEventStatus,
   Prisma,
   TicketRequestStatus,
   TicketSource,
@@ -8,6 +10,7 @@ import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from '../billing/stripe.client';
 import { recordProcessedWebhookEvent } from '../billing/webhook-event.helper';
+import { PaymentEventsService } from '../payment-events/payment-events.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
 import type { Stripe } from '../billing/stripe-types';
 
@@ -66,6 +69,7 @@ export class StripeWebhookService {
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
     private readonly stream: WaitlistStream,
+    private readonly paymentEvents: PaymentEventsService,
   ) {}
 
   async handle(event: Stripe.Event): Promise<WebhookHandleResult> {
@@ -74,6 +78,31 @@ export class StripeWebhookService {
     }
     if (event.type === 'checkout.session.expired') {
       return this.handleCheckoutExpired(event);
+    }
+
+    // 'checkout.session.created' is a real Stripe event but is absent from the
+    // SDK v22 Event['type'] union for this apiVersion; comparison needs the
+    // cast to widen `event.type` to a plain string.
+    if ((event.type as string) === 'checkout.session.created') {
+      return this.handleCheckoutCreated(event);
+    }
+
+    if (
+      event.type === 'payment_intent.succeeded' ||
+      event.type === 'payment_intent.payment_failed' ||
+      event.type === 'payment_intent.canceled'
+    ) {
+      return this.handlePaymentIntentTerminal(event);
+    }
+
+    if (event.type === 'charge.refunded') {
+      return this.handleChargeRefunded(event);
+    }
+    if (event.type === 'charge.dispute.created') {
+      return this.handleChargeDisputed(event);
+    }
+    if (event.type === 'invoice.payment_succeeded') {
+      return this.handleInvoicePaid(event);
     }
 
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
@@ -317,6 +346,220 @@ export class StripeWebhookService {
         data: { id: req.id, status: TicketRequestStatus.EXPIRED },
       });
     }
+    return { recorded: false };
+  }
+
+  // Insert a PENDING PaymentEvent row reflecting the session the user just
+  // started. The kind is derived from metadata.source set on the Checkout
+  // Session at creation time. PI may not yet be set by Stripe at this
+  // point — that's fine, we resolve it on succeeded.
+  private async handleCheckoutCreated(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const session = event.data.object as CheckoutSessionLike & {
+      amount_total?: number | null;
+      currency?: string | null;
+    };
+    const source = session.metadata?.source;
+    const userId = session.metadata?.userId ?? session.client_reference_id;
+    if (!source || !userId) {
+      this.logger.debug(
+        `checkout.session.created ${event.id} missing source/userId metadata; ignoring`,
+      );
+      return { recorded: false };
+    }
+    const kindMap: Record<string, PaymentEventKind> = {
+      ticket: PaymentEventKind.TICKET,
+      membership: PaymentEventKind.MEMBERSHIP,
+      donation: PaymentEventKind.DONATION,
+    };
+    const kind = kindMap[source];
+    if (!kind) {
+      this.logger.warn(
+        `checkout.session.created ${event.id} unknown source=${source}`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.upsertPendingCharge(this.prisma, {
+      userId,
+      kind,
+      amountCents: session.amount_total ?? 0,
+      currency: session.currency ?? 'usd',
+      stripeCustomerId: this.unwrapId(session.customer),
+      stripePaymentIntentId: this.unwrapId(session.payment_intent),
+      stripeCheckoutSessionId: session.id,
+      ticketRequestId: session.metadata?.ticketRequestId ?? null,
+    });
+    return { recorded: false };
+  }
+
+  // Resolve the PENDING ledger row by PI and write its terminal status.
+  // Ordering with checkout.session.completed: this is fine to fire either
+  // before or after — the ticket/membership creation in completed sets
+  // its own state; here we only touch the PaymentEvent row.
+  private async handlePaymentIntentTerminal(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const pi = event.data.object as {
+      id: string;
+      last_payment_error?: { message?: string } | null;
+    };
+    this.logger.debug(`${event.type} ${event.id} pi=${pi.id}`);
+    if (event.type === 'payment_intent.succeeded') {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.SUCCEEDED,
+        succeededAt: new Date(),
+      });
+    } else if (event.type === 'payment_intent.payment_failed') {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.FAILED,
+        failureReason: pi.last_payment_error?.message,
+      });
+    } else {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.CANCELED,
+        canceledAt: new Date(),
+      });
+    }
+    return { recorded: false };
+  }
+
+  // For every Refund object on the Charge, insert one PaymentEvent row.
+  // Idempotent on stripeRefundId — Stripe sends charge.refunded for every
+  // refund created, including replays. Partial refunds are supported by
+  // the partial unique index on payment_events (WHERE kind NOT IN
+  // ('REFUND','DISPUTE')).
+  private async handleChargeRefunded(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const charge = event.data.object as {
+      id: string;
+      currency: string;
+      customer?: string | null;
+      payment_intent?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+      refunds?: { data: Array<{ id: string; amount: number }> } | null;
+    };
+    this.logger.debug(`charge.refunded ${event.id} charge=${charge.id}`);
+    const userId = charge.metadata?.userId;
+    const piId = charge.payment_intent;
+    if (!userId || !piId) {
+      this.logger.warn(
+        `charge.refunded ${event.id} missing userId/PI; skipping`,
+      );
+      return { recorded: false };
+    }
+    const refunds = charge.refunds?.data ?? [];
+    for (const r of refunds) {
+      await this.paymentEvents.insertRefund(this.prisma, {
+        userId,
+        amountCents: r.amount,
+        currency: charge.currency,
+        stripeCustomerId: charge.customer ?? null,
+        stripePaymentIntentId: piId,
+        stripeRefundId: r.id,
+        stripeChargeId: charge.id,
+      });
+    }
+    return { recorded: false };
+  }
+
+  private async handleChargeDisputed(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const dispute = event.data.object as {
+      id: string;
+      amount: number;
+      currency: string;
+      charge: string;
+      payment_intent?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+    };
+    this.logger.debug(`charge.dispute.created ${event.id} dispute=${dispute.id}`);
+    // Stripe sometimes doesn't propagate metadata onto the dispute — fall
+    // back to looking up the charge.
+    let userId = dispute.metadata?.userId;
+    if (!userId) {
+      try {
+        const charge = await this.stripeClient.stripe.charges.retrieve(
+          dispute.charge,
+        );
+        userId = (charge.metadata as Record<string, string>)?.userId;
+      } catch {
+        // fall through to skip
+      }
+    }
+    if (!userId) {
+      this.logger.warn(
+        `charge.dispute.created ${event.id} could not resolve userId; skipping`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.insertDispute(this.prisma, {
+      userId,
+      amountCents: dispute.amount,
+      currency: dispute.currency,
+      stripeChargeId: dispute.charge,
+      stripePaymentIntentId: dispute.payment_intent ?? null,
+      description: `Dispute ${dispute.id}`,
+    });
+    return { recorded: false };
+  }
+
+  // Subscription renewals. The first invoice for a new subscription rides
+  // through checkout.session.created/completed → a PaymentEvent row was
+  // ALREADY created there. For renewal invoices (subscription already
+  // existed), we insert a new MEMBERSHIP row keyed on the renewal PI.
+  private async handleInvoicePaid(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const inv = event.data.object as {
+      id: string;
+      amount_paid: number;
+      currency: string;
+      customer: string;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      billing_reason?: string;
+      metadata?: Record<string, string | undefined> | null;
+    };
+    this.logger.debug(
+      `invoice.payment_succeeded ${event.id} invoice=${inv.id} reason=${inv.billing_reason}`,
+    );
+    if (inv.billing_reason === 'subscription_create') {
+      return { recorded: false }; // first invoice; already counted
+    }
+    if (!inv.payment_intent) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${event.id} has no PI; skipping`,
+      );
+      return { recorded: false };
+    }
+    let userId: string | undefined = inv.metadata?.userId;
+    if (!userId && inv.subscription) {
+      try {
+        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
+          inv.subscription,
+        );
+        userId = (sub.metadata as Record<string, string>)?.userId;
+      } catch {
+        // fall through
+      }
+    }
+    if (!userId) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${event.id} could not resolve userId; skipping`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.insertRenewal(this.prisma, {
+      userId,
+      amountCents: inv.amount_paid,
+      currency: inv.currency,
+      stripeCustomerId: inv.customer,
+      stripePaymentIntentId: inv.payment_intent,
+      stripeInvoiceId: inv.id,
+    });
     return { recorded: false };
   }
 

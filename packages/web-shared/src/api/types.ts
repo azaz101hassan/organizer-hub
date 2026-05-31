@@ -212,3 +212,40 @@ export type TicketCheckoutResult =
 export type ClaimResult =
   | { kind: "ticket"; ticket: TicketView }
   | { kind: "request"; requestId: string; status: TicketRequestStatus };
+
+export type PaymentEventKind =
+  | "TICKET"
+  | "MEMBERSHIP"
+  | "DONATION"
+  | "REFUND"
+  | "DISPUTE";
+
+export type PaymentEventStatus =
+  | "PENDING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "CANCELED";
+
+export interface PaymentEventView {
+  id: string;
+  organizationId: string;
+  userId: string;
+  kind: PaymentEventKind;
+  status: PaymentEventStatus;
+  amountCents: number;
+  currency: string;
+  description: string | null;
+  stripePaymentIntentId: string | null;
+  stripeCheckoutSessionId: string | null;
+  stripeInvoiceId: string | null;
+  stripeRefundId: string | null;
+  stripeChargeId: string | null;
+  ticketId: string | null;
+  ticketRequestId: string | null;
+  membershipId: string | null;
+  refundsPaymentIntentId: string | null;
+  failureReason: string | null;
+  succeededAt: string | null;
+  canceledAt: string | null;
+  createdAt: string;
+}

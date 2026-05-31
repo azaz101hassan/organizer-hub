@@ -50,6 +50,12 @@ export default function RootLayout({
               >
                 Waitlist
               </Link>
+              <Link
+                href="/transactions"
+                className="text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition"
+              >
+                Transactions
+              </Link>
             </nav>
             <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
               Admin

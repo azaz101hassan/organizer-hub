@@ -127,6 +127,10 @@ export class BillingService {
       customer: customer.stripeCustomerId,
       client_reference_id: userSub,
       line_items: [{ price: price.id, quantity: 1 }],
+      metadata: { source: 'membership', userId: userSub },
+      subscription_data: {
+        metadata: { source: 'membership', userId: userSub },
+      },
       success_url: `${webOrigin}/dashboard/membership?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${webOrigin}/membership?checkout=canceled`,
     });

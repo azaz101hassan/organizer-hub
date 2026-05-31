@@ -2,6 +2,7 @@ export { apiFetch, publicApiFetch, UnauthorizedError, ApiError } from "./api/cli
 export { readSession } from "./api/session";
 export type { SessionCookieNames } from "./api/session";
 export type * from "./api/types";
+export * from "./api/payment-events";
 export { formatDateTime, formatTimeUntil, toDatetimeLocalValue } from "./format";
 export { buildOidcConfig } from "./oidc/config";
 export type { OidcConfig, OidcEndpoints, OidcDefaults } from "./oidc/config";

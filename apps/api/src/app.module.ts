@@ -10,6 +10,7 @@ import { EventsModule } from './events/events.module';
 import { MailModule } from './mail/mail.module';
 import { MembershipsModule } from './memberships/memberships.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { PaymentEventsModule } from './payment-events/payment-events.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -38,6 +39,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     MailModule,
     MembershipsModule,
     OrganizationsModule,
+    PaymentEventsModule,
     EventsModule,
     EventLabelsModule,
     PublicModule,

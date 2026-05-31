@@ -72,7 +72,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="Membership">
           {membership ? (
             <>
@@ -127,6 +127,18 @@ export default async function DashboardPage() {
             className="mt-3 inline-block text-xs text-blue-600 hover:underline"
           >
             All events →
+          </Link>
+        </Card>
+
+        <Card title="Payments">
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+            Every charge, refund, and renewal.
+          </p>
+          <Link
+            href="/dashboard/payments"
+            className="mt-3 inline-block text-xs text-blue-600 hover:underline"
+          >
+            View all →
           </Link>
         </Card>
       </div>
