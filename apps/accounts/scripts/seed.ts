@@ -9,7 +9,7 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
     const client = await prisma.oAuthClient.upsert({
-      where: { clientId: 'organizer-web' },
+      where: { clientId: 'organizer-member' },
       update: {
         redirectUris: ['http://localhost:3000/auth/callback'],
         postLogoutRedirectUris: ['http://localhost:3000/'],
@@ -20,8 +20,8 @@ async function main(): Promise<void> {
         pkceRequired: true,
       },
       create: {
-        clientId: 'organizer-web',
-        name: 'OrganizerHub Web',
+        clientId: 'organizer-member',
+        name: 'OrganizerHub Member',
         clientSecret: null,
         redirectUris: ['http://localhost:3000/auth/callback'],
         postLogoutRedirectUris: ['http://localhost:3000/'],

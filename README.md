@@ -15,7 +15,7 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 
 | App | Port | Purpose |
 |---|---|---|
-| `apps/web` | 3000 | Next.js — organizer dashboard + public event pages (OAuth client) |
+| `apps/member` | 3000 | Next.js — consumer surface: public events, ticket purchase, membership (OAuth client `organizer-member`) |
 | `apps/api` | 3001 | NestJS — events, tickets, memberships, Stripe webhooks |
 | `apps/accounts` | 3002 | NestJS — OAuth2/OIDC Identity Provider |
 
@@ -67,8 +67,9 @@ Run `pnpm setup:env` to scaffold per-app `.env.local` files from each `.env.exam
 - Public read API for anonymous browsing under `/public/events*` with
   cursor pagination over `(startsAt, id)`. Drafts, cancelled, and past
   events are never exposed.
-- `apps/web` dashboard at `/dashboard` for organizers: org list, create
-  org, per-org events list, create event, edit event, publish, cancel.
+- `apps/member` dashboard at `/dashboard` for signed-in users: org list,
+  create org, per-org events list, create event, edit event, publish,
+  cancel. (Organizer-only routes move out to `apps/admin` in a later phase.)
   Server-only `apiFetch` wrapper injects the access token from cookies;
   401 → redirect to `/auth/login`.
 - Public pages at `/events` (list) and `/events/[id]` (detail) with
