@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
-export function Lede({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <p className={["lede", className].filter(Boolean).join(" ")}>{children}</p>;
+export function Lede({
+  children,
+  className = "",
+  ...rest
+}: HTMLAttributes<HTMLParagraphElement> & { children: ReactNode }) {
+  return (
+    <p className={["lede", className].filter(Boolean).join(" ")} {...rest}>
+      {children}
+    </p>
+  );
 }

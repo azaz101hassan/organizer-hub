@@ -21,5 +21,8 @@ export { Poster, type Mood } from "./poster/Poster";
 export { MOODS, monogram } from "./poster/moods";
 export { GRAIN_TEXTURE } from "./poster/grain";
 
+// Navigation
+export { NavLink } from "./nav/NavLink";
+
 // Theme
 export { readThemeCookie, type Theme } from "./theme/readThemeCookie";

@@ -1,74 +1,144 @@
 import Link from "next/link";
-import { readSession } from "@organizer-hub/web-shared";
+import { publicApiFetch } from "@organizer-hub/web-shared";
+import type { PublicEventView } from "@organizer-hub/web-shared";
+import { Button, Display, Eyebrow, Icon, Lede, Poster } from "@organizer-hub/web-shared/ui";
+import { PublicShell } from "../components/PublicShell";
+import { EventCard } from "../components/EventCard";
 
-export default async function Home() {
-  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  // Featured events: first three published events; tolerate fetch errors.
+  let featured: PublicEventView[] = [];
+  try {
+    const page = await publicApiFetch<{ items: PublicEventView[] }>(
+      "/public/events?limit=3",
+    );
+    featured = page.items.slice(0, 3);
+  } catch (err) {
+    console.error("[HomePage] featured fetch failed:", err);
+    featured = [];
+  }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-black px-6">
-      <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl shadow-xl p-10 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          OrganizerHub
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          One pane of glass for event organizers.
-        </p>
-
-        <div className="mt-8">
-          {session ? (
-            <>
-              <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                Signed in as{" "}
-                <strong className="text-zinc-900 dark:text-zinc-50">
-                  {session.email ?? session.sub}
-                </strong>
-              </p>
-              {session.name && (
-                <p className="text-xs text-zinc-500 mt-1">({session.name})</p>
-              )}
-              <div className="mt-6 flex items-center justify-center gap-3">
-                <Link
-                  href="/dashboard"
-                  className="inline-block rounded-full bg-zinc-900 dark:bg-zinc-100 text-zinc-50 dark:text-zinc-900 px-5 py-2 text-sm font-medium hover:bg-zinc-700 dark:hover:bg-zinc-300 transition"
-                >
-                  Dashboard
-                </Link>
-                <a
-                  href="/auth/logout"
-                  className="inline-block rounded-full border border-zinc-300 dark:border-zinc-700 px-5 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-                >
-                  Sign out
-                </a>
-              </div>
-            </>
-          ) : (
-            <a
-              href="/auth/login"
-              className="inline-block rounded-full bg-blue-600 text-white px-6 py-2.5 text-sm font-medium hover:bg-blue-500 transition"
+    <PublicShell>
+      <header
+        className="container container--wide"
+        style={{ paddingTop: 64, paddingBottom: 64 }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.05fr .95fr",
+            gap: 48,
+            alignItems: "center",
+          }}
+        >
+          <div
+            className="fade-in"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+            }}
+          >
+            <Eyebrow>Members · Events · Evenings of note</Eyebrow>
+            <Display
+              as="h1"
+              style={{
+                fontSize: "clamp(40px, 4.6vw, 58px)",
+                lineHeight: 1.04,
+                margin: "18px 0 20px",
+              }}
             >
-              Sign in
-            </a>
-          )}
+              The evenings worth keeping a seat for.
+            </Display>
+            <Lede style={{ maxWidth: 460 }}>
+              One pane of glass for the societies, clubs, and collectives behind
+              the calendar — and a membership that opens the door to all of
+              them.
+            </Lede>
+            <div style={{ display: "flex", gap: 12, marginTop: 30 }}>
+              <Link href="/events">
+                <Button size="lg">
+                  Browse events <Icon name="arrowR" size={16} />
+                </Button>
+              </Link>
+              <Link href="/membership">
+                <Button size="lg" variant="ghost">
+                  Become a member
+                </Button>
+              </Link>
+            </div>
+          </div>
+          <Poster
+            mood="oxblood"
+            label="O"
+            monoSize={460}
+            className="fade-in"
+            style={{ height: 520, borderRadius: "var(--radius-lg)" }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                zIndex: 2,
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+                padding: 30,
+              }}
+            >
+              <Display as="h3" style={{ color: "#fff", fontSize: 34 }}>
+                OrganizerHub
+              </Display>
+              <p
+                style={{
+                  color: "rgba(255,255,255,.8)",
+                  fontSize: 14,
+                  marginTop: 6,
+                }}
+              >
+                Membership that opens every door.
+              </p>
+            </div>
+          </Poster>
         </div>
+      </header>
 
-        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-4 flex items-center justify-center gap-4">
-          <Link
-            href="/events"
-            className="text-sm text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+      {featured.length > 0 && (
+        <section
+          className="container container--wide"
+          style={{ paddingBottom: 72 }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              marginBottom: 22,
+            }}
           >
-            Browse events →
-          </Link>
-          <span aria-hidden className="text-zinc-300 dark:text-zinc-700">
-            ·
-          </span>
-          <Link
-            href="/membership"
-            className="text-sm text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+            <Display as="h2" size="md">
+              On the calendar
+            </Display>
+            <Link href="/events" className="link">
+              All events →
+            </Link>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 22,
+            }}
           >
-            Become a member →
-          </Link>
-        </div>
-      </div>
-    </main>
+            {featured.map((event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+    </PublicShell>
   );
 }
