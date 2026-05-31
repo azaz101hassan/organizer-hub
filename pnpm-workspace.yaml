@@ -2,6 +2,13 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Force postcss >= 8.5.10 across the workspace to pull Next's bundled
+# 8.4.31 out of the install graph (GHSA-qx2v-qp2m-jg93). postcss runs only
+# at build time here, so the upgrade is a build-correctness concern, not a
+# runtime risk. Remove once Next ships a release that bundles >= 8.5.10.
+overrides:
+  postcss: "^8.5.10"
+
 allowBuilds:
   "@nestjs/core": true
   "@prisma/client": true
