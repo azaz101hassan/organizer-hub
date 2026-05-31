@@ -264,4 +264,102 @@ describe('Events (e2e)', () => {
         .expect(404);
     });
   });
+
+  describe('labelId', () => {
+    async function createLabel(
+      ownerOrg: string,
+      slug: string,
+      name = slug,
+    ): Promise<string> {
+      const label = await prisma.eventLabel.create({
+        data: { organizationId: ownerOrg, name, slug },
+      });
+      return label.id;
+    }
+
+    it('creates an event with a valid labelId and echoes it on the body', async () => {
+      const labelId = await createLabel(orgId, 'concerts');
+      const res = await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Labeled Gala',
+          startsAt: '2026-09-01T18:00:00.000Z',
+          labelId,
+        })
+        .expect(201);
+      expect(jsonBody<{ labelId: string }>(res).labelId).toBe(labelId);
+    });
+
+    it('rejects create with a labelId belonging to another org as 400', async () => {
+      const foreignLabelId = await createLabel(otherOrgId, 'concerts');
+      const res = await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Cross-org label',
+          startsAt: '2026-09-01T18:00:00.000Z',
+          labelId: foreignLabelId,
+        })
+        .expect(400);
+      expect(jsonBody<{ message: string }>(res).message).toMatch(/label/i);
+    });
+
+    it('lists only events matching ?labelId; omitting the filter returns all', async () => {
+      const concertsId = await createLabel(orgId, 'concerts');
+      const workshopsId = await createLabel(orgId, 'workshops');
+      await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Concert',
+          startsAt: '2026-09-01T18:00:00.000Z',
+          labelId: concertsId,
+        })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Workshop',
+          startsAt: '2026-09-02T18:00:00.000Z',
+          labelId: workshopsId,
+        })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Unlabeled',
+          startsAt: '2026-09-03T18:00:00.000Z',
+        })
+        .expect(201);
+
+      const filtered = await request(app.getHttpServer())
+        .get(`/organizations/${orgId}/events?labelId=${concertsId}`)
+        .expect(200);
+      expect(
+        jsonBody<Array<{ title: string }>>(filtered).map((e) => e.title),
+      ).toEqual(['Concert']);
+
+      const all = await request(app.getHttpServer())
+        .get(`/organizations/${orgId}/events`)
+        .expect(200);
+      expect(jsonBody<unknown[]>(all)).toHaveLength(3);
+    });
+
+    it('updates with null labelId clears the existing label', async () => {
+      const labelId = await createLabel(orgId, 'concerts');
+      const created = await request(app.getHttpServer())
+        .post(`/organizations/${orgId}/events`)
+        .send({
+          title: 'Clearable',
+          startsAt: '2026-09-01T18:00:00.000Z',
+          labelId,
+        })
+        .expect(201);
+      const eventId = jsonBody<{ id: string }>(created).id;
+
+      const cleared = await request(app.getHttpServer())
+        .patch(`/organizations/${orgId}/events/${eventId}`)
+        .send({ labelId: null })
+        .expect(200);
+      expect(jsonBody<{ labelId: string | null }>(cleared).labelId).toBeNull();
+    });
+  });
 });

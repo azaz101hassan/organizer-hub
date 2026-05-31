@@ -24,4 +24,8 @@ export class CreateEventDto {
   @IsString()
   @Length(1, 200)
   venue?: string;
+
+  @IsOptional()
+  @IsString()
+  labelId?: string;
 }

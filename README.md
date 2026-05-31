@@ -15,9 +15,10 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 
 | App | Port | Purpose |
 |---|---|---|
-| `apps/web` | 3000 | Next.js — organizer dashboard + public event pages (OAuth client) |
+| `apps/member` | 3000 | Next.js — consumer surface: public events, ticket purchase, membership (OAuth client `organizer-member`) |
 | `apps/api` | 3001 | NestJS — events, tickets, memberships, Stripe webhooks |
 | `apps/accounts` | 3002 | NestJS — OAuth2/OIDC Identity Provider |
+| `apps/admin` | 3003 | Next.js — organizer surface: events, ticket-types, labels, waitlist queue (OAuth client `organizer-admin`, bound to a single house org via `HOUSE_ORG_ID`) |
 
 ## Packages
 
@@ -38,9 +39,26 @@ Unified dashboard for event organizers — attacking the fragmented US ticketing
 
 ```bash
 pnpm install
-cp .env.example .env
+pnpm setup:env
+pnpm --filter @organizer-hub/db migrate:accounts:dev
+pnpm --filter @organizer-hub/db migrate:api:dev
+pnpm --filter @organizer-hub/db seed:api    # 6 MembershipPlan rows
+pnpm --filter @organizer-hub/api seed       # house Organization + default EventLabels
+pnpm --filter @organizer-hub/accounts seed  # organizer-member and organizer-admin OAuth clients
 pnpm dev
 ```
+
+`pnpm setup:env` scaffolds per-app `.env.local` files from each `.env.example` and never overwrites — re-run after pulling to pick up new keys (existing locals stay put; add new keys manually).
+
+The `apps/api` seed prints a `HOUSE_ORG_ID`. The default `apps/admin/.env.example` already wires the deterministic id used by the seed, so a clean `pnpm setup:env` lands a working admin env without manual editing. If you change the id, paste it into `apps/admin/.env.local`. Each app has its own OAuth client and its own session cookies (`oh_member_*`, `oh_admin_*`), so the same browser can be signed into both side by side.
+
+Signup alone does not grant any organization membership. After signing up via `apps/accounts` (port 3002), promote yourself to OWNER on the seeded house org so `apps/admin` write paths (labels, events) stop returning 404:
+
+```bash
+pnpm setup:owner you@example.com
+```
+
+This is a local-dev convenience only — see `docs/specs/2026-05-31-promote-house-owner-design.md` for the rationale.
 
 ## Phases
 
@@ -50,6 +68,10 @@ pnpm dev
 - **Phase 3** — Stripe billing: tiered memberships + tiered tickets + per-event coverage ✅
 - **Phase 4** — Capacity caps + waitlist (request → approve/reject),
   transactional email, live SSE admin queue ✅
+- **Admin/member split** — split `apps/web` into `apps/member` (consumer,
+  port 3000) and `apps/admin` (organizer, port 3003) sharing
+  `packages/web-shared`; per-app `.env.local` driven by `pnpm setup:env`;
+  `EventLabel` category model (DB + API + admin CRUD + public filter) ✅
 
 ## What Phase 2 ships
 
@@ -65,8 +87,9 @@ pnpm dev
 - Public read API for anonymous browsing under `/public/events*` with
   cursor pagination over `(startsAt, id)`. Drafts, cancelled, and past
   events are never exposed.
-- `apps/web` dashboard at `/dashboard` for organizers: org list, create
-  org, per-org events list, create event, edit event, publish, cancel.
+- `apps/member` dashboard at `/dashboard` for signed-in users: org list,
+  create org, per-org events list, create event, edit event, publish,
+  cancel. (Organizer-only routes move out to `apps/admin` in a later phase.)
   Server-only `apiFetch` wrapper injects the access token from cookies;
   401 → redirect to `/auth/login`.
 - Public pages at `/events` (list) and `/events/[id]` (detail) with
@@ -132,14 +155,7 @@ pnpm dev
 
 ## Local boot recipe
 
-```bash
-pnpm install
-cp .env.example .env  # fill in STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY
-pnpm --filter @organizer-hub/db migrate:accounts:dev
-pnpm --filter @organizer-hub/db migrate:api:dev
-pnpm --filter @organizer-hub/db seed:api      # seeds the 6 MembershipPlan rows
-pnpm dev
-```
+See "Getting started" above for the canonical sequence (it now bundles the per-app env split, the api `pnpm setup:env` step, and both seed scripts). The Stripe key wire-up below still applies regardless of which apps you boot.
 
 In a separate terminal, forward Stripe webhooks to the local api:
 

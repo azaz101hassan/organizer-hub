@@ -11,7 +11,10 @@ import { PrismaModule } from './prisma/prisma.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [path.resolve(__dirname, '../../../.env')],
+      envFilePath: [
+        path.resolve(__dirname, '../../../apps/accounts/.env.local'),
+        path.resolve(__dirname, '../../../.env'),
+      ],
     }),
     PrismaModule,
     OidcModule,

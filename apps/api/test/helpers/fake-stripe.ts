@@ -315,7 +315,10 @@ export class FakeStripeClient {
             return session;
           },
           retrieve: async (id: string): Promise<FakeCheckoutSession> => {
-            this.calls.push({ method: 'checkout.sessions.retrieve', args: [id] });
+            this.calls.push({
+              method: 'checkout.sessions.retrieve',
+              args: [id],
+            });
             const session = this.checkoutSessions.get(id);
             if (!session) throw new Error(`No such checkout session: ${id}`);
             return session;

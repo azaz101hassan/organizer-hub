@@ -13,6 +13,7 @@ export interface PublicEventView {
   venue: string | null;
   publishedAt: Date | null;
   organization: { name: string; slug: string };
+  label: { id: string; name: string; slug: string } | null;
 }
 
 export interface PublicEventsPage {
@@ -23,11 +24,14 @@ export interface PublicEventsPage {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-type EventWithOrg = Prisma.EventGetPayload<{
-  include: { organization: { select: { name: true; slug: true } } };
+type EventWithOrgAndLabel = Prisma.EventGetPayload<{
+  include: {
+    organization: { select: { name: true; slug: true } };
+    label: { select: { id: true; name: true; slug: true } };
+  };
 }>;
 
-function toView(e: EventWithOrg): PublicEventView {
+function toView(e: EventWithOrgAndLabel): PublicEventView {
   return {
     id: e.id,
     title: e.title,
@@ -38,6 +42,9 @@ function toView(e: EventWithOrg): PublicEventView {
     venue: e.venue,
     publishedAt: e.publishedAt,
     organization: { name: e.organization.name, slug: e.organization.slug },
+    label: e.label
+      ? { id: e.label.id, name: e.label.name, slug: e.label.slug }
+      : null,
   };
 }
 
@@ -48,6 +55,7 @@ export class PublicEventsService {
   async listUpcoming(opts: {
     cursor?: string;
     limit?: number;
+    labelId?: string;
   }): Promise<PublicEventsPage> {
     const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
     const now = new Date();
@@ -64,12 +72,14 @@ export class PublicEventsService {
       where: {
         status: EventStatus.PUBLISHED,
         startsAt: { gte: now },
+        ...(opts.labelId ? { labelId: opts.labelId } : {}),
         ...tupleFilter,
       },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       take: limit + 1,
       include: {
         organization: { select: { name: true, slug: true } },
+        label: { select: { id: true, name: true, slug: true } },
       },
     });
 
@@ -88,7 +98,10 @@ export class PublicEventsService {
   async getById(id: string): Promise<PublicEventView> {
     const event = await this.prisma.event.findFirst({
       where: { id, status: EventStatus.PUBLISHED },
-      include: { organization: { select: { name: true, slug: true } } },
+      include: {
+        organization: { select: { name: true, slug: true } },
+        label: { select: { id: true, name: true, slug: true } },
+      },
     });
     if (!event) throw new NotFoundException();
     return toView(event);

@@ -24,12 +24,21 @@ export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
 }
 
+// Per-app cookie name. Each app sets OH_ACCESS_TOKEN_COOKIE in its
+// .env.local so the prefixed cookies written by the middleware (e.g.,
+// oh_member_access_token, oh_admin_access_token) can co-exist in the same
+// browser. Falls back to the bare "access_token" name for backwards
+// compatibility with older deployments.
+function accessTokenCookieName(): string {
+  return process.env.OH_ACCESS_TOKEN_COOKIE ?? "access_token";
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   opts: ApiFetchOptions = {},
 ): Promise<T> {
   const store = await cookies();
-  const accessToken = store.get("access_token")?.value;
+  const accessToken = store.get(accessTokenCookieName())?.value;
   if (!accessToken) throw new UnauthorizedError("missing access token");
 
   const headers = new Headers(opts.headers);
