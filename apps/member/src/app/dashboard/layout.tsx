@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { readSession } from "@organizer-hub/web-shared";
+import NavLinks from "./NavLinks";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await readSession({ session: "oh_member_session", refresh: "oh_member_refresh", accessToken: "oh_member_access_token" });
+  const session = await readSession({
+    session: "oh_member_session",
+    refresh: "oh_member_refresh",
+    accessToken: "oh_member_access_token",
+  });
   if (!session) redirect("/auth/login");
 
   return (
@@ -20,28 +25,19 @@ export default async function DashboardLayout({
           >
             OrganizerHub
           </Link>
-          <div className="flex items-center gap-4 text-xs text-zinc-500">
-            <Link
-              href="/dashboard/membership"
-              className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
-            >
-              Membership
-            </Link>
-            <Link
-              href="/dashboard/requests"
-              className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
-            >
-              Requests
-            </Link>
-            <span className="hidden sm:inline">
-              {session.email ?? session.sub}
-            </span>
-            <a
-              href="/auth/logout"
-              className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
-            >
-              Sign out
-            </a>
+          <div className="flex items-center gap-4">
+            <NavLinks />
+            <div className="flex items-center gap-4 text-xs text-zinc-500">
+              <span className="hidden sm:inline">
+                {session.email ?? session.sub}
+              </span>
+              <a
+                href="/auth/logout"
+                className="text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50"
+              >
+                Sign out
+              </a>
+            </div>
           </div>
         </div>
       </header>
