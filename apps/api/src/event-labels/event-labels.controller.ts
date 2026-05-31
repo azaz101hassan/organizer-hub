@@ -8,52 +8,54 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { OrganizationRole } from '@organizer-hub/db/api';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { CreateEventLabelDto } from './dto/create-event-label.dto';
+import { QueryEventLabelsDto } from './dto/query-event-labels.dto';
 import { UpdateEventLabelDto } from './dto/update-event-label.dto';
 import { EventLabelsService } from './event-labels.service';
 
-@Controller('organizations/:orgId/event-labels')
-@UseGuards(JwtAuthGuard, RolesGuard)
+// Flat surface (no /organizations/:orgId/… prefix) because the admin app is
+// single-tenant — it passes HOUSE_ORG_ID via env on every request. Permission
+// checks live in the service so we still gate against non-house-org members
+// even though the URL no longer carries the org id.
+@Controller('event-labels')
+@UseGuards(JwtAuthGuard)
 export class EventLabelsController {
   constructor(private readonly labels: EventLabelsService) {}
 
   @Get()
-  @Roles(
-    OrganizationRole.OWNER,
-    OrganizationRole.ADMIN,
-    OrganizationRole.MEMBER,
-  )
-  list(@Param('orgId') orgId: string) {
-    return this.labels.listForOrg(orgId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryEventLabelsDto,
+  ) {
+    return this.labels.listForUser(user.sub, query.organizationId);
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
-  create(@Param('orgId') orgId: string, @Body() dto: CreateEventLabelDto) {
-    return this.labels.create(orgId, dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateEventLabelDto,
+  ) {
+    return this.labels.createForUser(user.sub, dto);
   }
 
   @Patch(':id')
-  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   update(
-    @Param('orgId') orgId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateEventLabelDto,
   ) {
-    return this.labels.update(orgId, id, dto);
+    return this.labels.updateForUser(user.sub, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
-  remove(@Param('orgId') orgId: string, @Param('id') id: string) {
-    return this.labels.delete(orgId, id);
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.labels.deleteForUser(user.sub, id);
   }
 }

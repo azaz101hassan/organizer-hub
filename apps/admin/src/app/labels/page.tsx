@@ -13,7 +13,7 @@ export default async function LabelsPage() {
   let labels: EventLabelView[];
   try {
     labels = await apiFetch<EventLabelView[]>(
-      `/organizations/${orgId}/event-labels`,
+      `/event-labels?organizationId=${encodeURIComponent(orgId)}`,
     );
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");

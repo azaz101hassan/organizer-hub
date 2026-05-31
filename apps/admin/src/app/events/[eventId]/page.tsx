@@ -33,7 +33,9 @@ export default async function EventEditPage({
     [event, org, labels] = await Promise.all([
       apiFetch<EventView>(`/organizations/${orgId}/events/${eventId}`),
       apiFetch<OrganizationView>(`/organizations/${orgId}`),
-      apiFetch<EventLabelView[]>(`/organizations/${orgId}/event-labels`),
+      apiFetch<EventLabelView[]>(
+        `/event-labels?organizationId=${encodeURIComponent(orgId)}`,
+      ),
     ]);
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");

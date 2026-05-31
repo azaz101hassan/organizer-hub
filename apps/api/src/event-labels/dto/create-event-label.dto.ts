@@ -2,6 +2,9 @@ import { IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validat
 
 export class CreateEventLabelDto {
   @IsString()
+  organizationId!: string;
+
+  @IsString()
   @Length(1, 60)
   name!: string;
 

@@ -1,9 +1,10 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@organizer-hub/db/api';
+import { OrganizationRole, Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface EventLabelView {
@@ -25,6 +26,11 @@ interface DbEventLabel {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const WRITE_ROLES: ReadonlySet<OrganizationRole> = new Set([
+  OrganizationRole.OWNER,
+  OrganizationRole.ADMIN,
+]);
 
 function toView(l: DbEventLabel): EventLabelView {
   return {
@@ -48,22 +54,60 @@ function isUniqueViolation(err: unknown): boolean {
 export class EventLabelsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listForOrg(orgId: string): Promise<EventLabelView[]> {
+  // Membership lookup that mirrors RolesGuard: missing membership leaks as 404
+  // (no existence hint); membership without an allowed role leaks as 403.
+  private async requireRole(
+    userId: string,
+    organizationId: string,
+    allowed: ReadonlySet<OrganizationRole>,
+  ): Promise<void> {
+    const member = await this.prisma.organizationMember.findUnique({
+      where: {
+        organizationId_userId: { organizationId, userId },
+      },
+      select: { role: true },
+    });
+    if (!member) throw new NotFoundException();
+    if (!allowed.has(member.role)) {
+      throw new ForbiddenException('insufficient role');
+    }
+  }
+
+  async listForUser(
+    userId: string,
+    organizationId: string,
+  ): Promise<EventLabelView[]> {
+    // Any role can read.
+    await this.requireRole(
+      userId,
+      organizationId,
+      new Set([
+        OrganizationRole.OWNER,
+        OrganizationRole.ADMIN,
+        OrganizationRole.MEMBER,
+      ]),
+    );
     const rows = await this.prisma.eventLabel.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
     return rows.map(toView);
   }
 
-  async create(
-    orgId: string,
-    input: { name: string; slug: string; sortOrder?: number },
+  async createForUser(
+    userId: string,
+    input: {
+      organizationId: string;
+      name: string;
+      slug: string;
+      sortOrder?: number;
+    },
   ): Promise<EventLabelView> {
+    await this.requireRole(userId, input.organizationId, WRITE_ROLES);
     try {
       const label = await this.prisma.eventLabel.create({
         data: {
-          organizationId: orgId,
+          organizationId: input.organizationId,
           name: input.name,
           slug: input.slug,
           sortOrder: input.sortOrder ?? 0,
@@ -78,15 +122,14 @@ export class EventLabelsService {
     }
   }
 
-  async update(
-    orgId: string,
+  async updateForUser(
+    userId: string,
     id: string,
     patch: { name?: string; slug?: string; sortOrder?: number },
   ): Promise<EventLabelView> {
-    const current = await this.prisma.eventLabel.findFirst({
-      where: { id, organizationId: orgId },
-    });
+    const current = await this.prisma.eventLabel.findUnique({ where: { id } });
     if (!current) throw new NotFoundException();
+    await this.requireRole(userId, current.organizationId, WRITE_ROLES);
     try {
       const updated = await this.prisma.eventLabel.update({
         where: { id },
@@ -101,11 +144,10 @@ export class EventLabelsService {
     }
   }
 
-  async delete(orgId: string, id: string): Promise<void> {
-    const current = await this.prisma.eventLabel.findFirst({
-      where: { id, organizationId: orgId },
-    });
+  async deleteForUser(userId: string, id: string): Promise<void> {
+    const current = await this.prisma.eventLabel.findUnique({ where: { id } });
     if (!current) throw new NotFoundException();
+    await this.requireRole(userId, current.organizationId, WRITE_ROLES);
     const eventCount = await this.prisma.event.count({
       where: { labelId: id },
     });

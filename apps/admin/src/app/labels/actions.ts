@@ -50,9 +50,10 @@ export async function createLabel(
   }
 
   try {
-    await apiFetch<EventLabelView>(`/organizations/${orgId}/event-labels`, {
+    await apiFetch<EventLabelView>(`/event-labels`, {
       method: "POST",
       body: {
+        organizationId: orgId,
         name,
         slug,
         ...(sortOrder !== undefined ? { sortOrder } : {}),
@@ -78,7 +79,6 @@ export async function renameLabel(
   id: string,
   formData: FormData,
 ): Promise<LabelFormState> {
-  const orgId = getHouseOrgId();
   const name = String(formData.get("name") ?? "").trim();
   const slug = String(formData.get("slug") ?? "").trim();
   const sortOrderRaw = String(formData.get("sortOrder") ?? "");
@@ -90,17 +90,14 @@ export async function renameLabel(
   }
 
   try {
-    await apiFetch<EventLabelView>(
-      `/organizations/${orgId}/event-labels/${id}`,
-      {
-        method: "PATCH",
-        body: {
-          name,
-          slug,
-          ...(sortOrder !== undefined ? { sortOrder } : {}),
-        },
+    await apiFetch<EventLabelView>(`/event-labels/${id}`, {
+      method: "PATCH",
+      body: {
+        name,
+        slug,
+        ...(sortOrder !== undefined ? { sortOrder } : {}),
       },
-    );
+    });
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError) {
@@ -123,9 +120,9 @@ export interface DeleteLabelResult {
 }
 
 export async function deleteLabel(id: string): Promise<DeleteLabelResult> {
-  const orgId = getHouseOrgId();
+  getHouseOrgId(); // throw early if the env binding is missing
   try {
-    await apiFetch<void>(`/organizations/${orgId}/event-labels/${id}`, {
+    await apiFetch<void>(`/event-labels/${id}`, {
       method: "DELETE",
     });
   } catch (err) {
