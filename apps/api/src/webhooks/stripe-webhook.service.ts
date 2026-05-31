@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  PaymentEventKind,
   Prisma,
   TicketRequestStatus,
   TicketSource,
@@ -8,6 +9,7 @@ import { MembershipsService } from '../memberships/memberships.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from '../billing/stripe.client';
 import { recordProcessedWebhookEvent } from '../billing/webhook-event.helper';
+import { PaymentEventsService } from '../payment-events/payment-events.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
 import type { Stripe } from '../billing/stripe-types';
 
@@ -66,6 +68,7 @@ export class StripeWebhookService {
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
     private readonly stream: WaitlistStream,
+    private readonly paymentEvents: PaymentEventsService,
   ) {}
 
   async handle(event: Stripe.Event): Promise<WebhookHandleResult> {
@@ -74,6 +77,10 @@ export class StripeWebhookService {
     }
     if (event.type === 'checkout.session.expired') {
       return this.handleCheckoutExpired(event);
+    }
+
+    if ((event.type as string) === 'checkout.session.created') {
+      return this.handleCheckoutCreated(event);
     }
 
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
@@ -317,6 +324,50 @@ export class StripeWebhookService {
         data: { id: req.id, status: TicketRequestStatus.EXPIRED },
       });
     }
+    return { recorded: false };
+  }
+
+  // Insert a PENDING PaymentEvent row reflecting the session the user just
+  // started. The kind is derived from metadata.source set on the Checkout
+  // Session at creation time. PI may not yet be set by Stripe at this
+  // point — that's fine, we resolve it on succeeded.
+  private async handleCheckoutCreated(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const session = event.data.object as CheckoutSessionLike & {
+      amount_total?: number | null;
+      currency?: string | null;
+    };
+    const source = session.metadata?.source;
+    const userId = session.metadata?.userId ?? session.client_reference_id;
+    if (!source || !userId) {
+      this.logger.debug(
+        `checkout.session.created ${event.id} missing source/userId metadata; ignoring`,
+      );
+      return { recorded: false };
+    }
+    const kindMap: Record<string, PaymentEventKind> = {
+      ticket: PaymentEventKind.TICKET,
+      membership: PaymentEventKind.MEMBERSHIP,
+      donation: PaymentEventKind.DONATION,
+    };
+    const kind = kindMap[source];
+    if (!kind) {
+      this.logger.warn(
+        `checkout.session.created ${event.id} unknown source=${source}`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.upsertPendingCharge(this.prisma, {
+      userId,
+      kind,
+      amountCents: session.amount_total ?? 0,
+      currency: session.currency ?? 'usd',
+      stripeCustomerId: this.unwrapId(session.customer),
+      stripePaymentIntentId: this.unwrapId(session.payment_intent),
+      stripeCheckoutSessionId: session.id,
+      ticketRequestId: session.metadata?.ticketRequestId ?? null,
+    });
     return { recorded: false };
   }
 
