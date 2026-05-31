@@ -15,6 +15,7 @@ export interface UpdateEventFormState {
     endsAt?: string;
     venue?: string;
     membersExcluded?: boolean;
+    labelId?: string;
   };
   ok?: boolean;
 }
@@ -37,6 +38,11 @@ export async function updateEvent(
   const endsAtRaw = String(formData.get("endsAt") ?? "");
   const venue = String(formData.get("venue") ?? "").trim();
   const membersExcluded = formData.get("membersExcluded") === "on";
+  // "" from the empty-option in the dropdown means "clear the label" — the
+  // API treats null as the clear signal; undefined would leave it alone.
+  const labelIdRaw = formData.get("labelId");
+  const labelId =
+    typeof labelIdRaw === "string" && labelIdRaw !== "" ? labelIdRaw : null;
 
   const fieldErrors: NonNullable<UpdateEventFormState["fieldErrors"]> = {};
   if (title.length < 2) fieldErrors.title = "Title must be at least 2 characters.";
@@ -58,6 +64,7 @@ export async function updateEvent(
     endsAt: endsAtRaw,
     venue,
     membersExcluded,
+    labelId: labelId ?? "",
   };
 
   if (Object.keys(fieldErrors).length > 0 || !startsAt) {
@@ -76,6 +83,7 @@ export async function updateEvent(
           endsAt: endsAt ? endsAt.toISOString() : null,
           venue: venue || null,
           membersExcluded,
+          labelId,
         },
       },
     );

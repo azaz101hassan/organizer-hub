@@ -26,6 +26,17 @@ export interface EventView {
   status: EventStatus;
   publishedAt: string | null;
   membersExcluded: boolean;
+  labelId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventLabelView {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,6 +51,7 @@ export interface PublicEventView {
   venue: string | null;
   publishedAt: string | null;
   organization: { name: string; slug: string };
+  label: { id: string; name: string; slug: string } | null;
 }
 
 export interface PublicEventsPage {

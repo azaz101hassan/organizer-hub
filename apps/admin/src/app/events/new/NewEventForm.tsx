@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
+import type { EventLabelView } from "@organizer-hub/web-shared";
 import {
   createEvent,
   type CreateEventFormState,
@@ -9,7 +10,13 @@ import {
 
 const INITIAL: CreateEventFormState = {};
 
-export default function NewEventForm({ orgId }: { orgId: string }) {
+export default function NewEventForm({
+  orgId,
+  labels,
+}: {
+  orgId: string;
+  labels: EventLabelView[];
+}) {
   const action = createEvent.bind(null, orgId);
   const [state, formAction, pending] = useActionState(action, INITIAL);
 
@@ -92,6 +99,30 @@ export default function NewEventForm({ orgId }: { orgId: string }) {
           defaultValue={state.values?.venue ?? ""}
           disabled={pending}
         />
+
+        <div>
+          <label
+            htmlFor="labelId"
+            className="block text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
+          >
+            Label{" "}
+            <span className="text-zinc-400 normal-case">(optional)</span>
+          </label>
+          <select
+            id="labelId"
+            name="labelId"
+            defaultValue={state.values?.labelId ?? ""}
+            disabled={pending}
+            className="mt-1 block h-10 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
+          >
+            <option value="">— No label —</option>
+            {labels.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {state.error && (
           <p className="text-sm text-red-600 dark:text-red-400">

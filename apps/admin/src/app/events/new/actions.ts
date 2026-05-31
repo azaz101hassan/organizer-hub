@@ -17,6 +17,7 @@ export interface CreateEventFormState {
     startsAt?: string;
     endsAt?: string;
     venue?: string;
+    labelId?: string;
   };
 }
 
@@ -36,6 +37,7 @@ export async function createEvent(
   const startsAtRaw = String(formData.get("startsAt") ?? "");
   const endsAtRaw = String(formData.get("endsAt") ?? "");
   const venue = String(formData.get("venue") ?? "").trim();
+  const labelId = String(formData.get("labelId") ?? "").trim();
 
   const fieldErrors: NonNullable<CreateEventFormState["fieldErrors"]> = {};
   if (title.length < 2) fieldErrors.title = "Title must be at least 2 characters.";
@@ -57,6 +59,7 @@ export async function createEvent(
     startsAt: startsAtRaw,
     endsAt: endsAtRaw,
     venue,
+    labelId,
   };
 
   if (Object.keys(fieldErrors).length > 0 || !startsAt) {
@@ -75,6 +78,7 @@ export async function createEvent(
           startsAt: startsAt.toISOString(),
           ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
           ...(venue ? { venue } : {}),
+          ...(labelId ? { labelId } : {}),
         },
       },
     );

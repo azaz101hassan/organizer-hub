@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ApiError, apiFetch, UnauthorizedError, getHouseOrgId } from "@organizer-hub/web-shared";
 import type {
+  EventLabelView,
   EventStatus,
   EventView,
   OrganizationView,
@@ -27,10 +28,12 @@ export default async function EventEditPage({
 
   let event: EventView;
   let org: OrganizationView;
+  let labels: EventLabelView[];
   try {
-    [event, org] = await Promise.all([
+    [event, org, labels] = await Promise.all([
       apiFetch<EventView>(`/organizations/${orgId}/events/${eventId}`),
       apiFetch<OrganizationView>(`/organizations/${orgId}`),
+      apiFetch<EventLabelView[]>(`/organizations/${orgId}/event-labels`),
     ]);
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
@@ -78,6 +81,7 @@ export default async function EventEditPage({
         orgId={orgId}
         eventId={eventId}
         event={event}
+        labels={labels}
         canMutate={canMutate}
       />
     </div>

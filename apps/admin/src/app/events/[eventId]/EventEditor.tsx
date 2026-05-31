@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useTransition } from "react";
-import type { EventView } from "@organizer-hub/web-shared";
+import type { EventLabelView, EventView } from "@organizer-hub/web-shared";
 import { toDatetimeLocalValue } from "@organizer-hub/web-shared/client";
 import {
   cancelEvent,
@@ -17,11 +17,13 @@ export default function EventEditor({
   orgId,
   eventId,
   event,
+  labels,
   canMutate,
 }: {
   orgId: string;
   eventId: string;
   event: EventView;
+  labels: EventLabelView[];
   canMutate: boolean;
 }) {
   const action = updateEvent.bind(null, orgId, eventId);
@@ -35,6 +37,7 @@ export default function EventEditor({
     endsAt: event.endsAt ? toDatetimeLocalValue(event.endsAt) : "",
     venue: event.venue ?? "",
     membersExcluded: event.membersExcluded,
+    labelId: event.labelId ?? "",
   };
 
   const disabled = !canMutate || formPending || transitionPending;
@@ -102,6 +105,30 @@ export default function EventEditor({
           defaultValue={values.venue}
           disabled={disabled}
         />
+
+        <div>
+          <label
+            htmlFor="labelId"
+            className="block text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
+          >
+            Label{" "}
+            <span className="text-zinc-400 normal-case">(optional)</span>
+          </label>
+          <select
+            id="labelId"
+            name="labelId"
+            defaultValue={values.labelId ?? ""}
+            disabled={disabled}
+            className="mt-1 block h-10 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
+          >
+            <option value="">— No label —</option>
+            {labels.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 p-4">
           <label className="flex items-start gap-3 cursor-pointer">
