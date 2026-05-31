@@ -23,3 +23,4 @@ export { GRAIN_TEXTURE } from "./poster/grain";
 
 // Navigation
 export { NavLink } from "./nav/NavLink";
+export { NavItem } from "./nav/NavItem";

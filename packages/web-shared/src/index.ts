@@ -1,6 +1,6 @@
 export { apiFetch, publicApiFetch, UnauthorizedError, ApiError } from "./api/client";
 export { readSession } from "./api/session";
-export type { SessionCookieNames } from "./api/session";
+export type { SessionCookieNames, SessionIdentity } from "./api/session";
 export type * from "./api/types";
 export * from "./api/payment-events";
 export { formatDateTime, formatTimeUntil, toDatetimeLocalValue } from "./format";
