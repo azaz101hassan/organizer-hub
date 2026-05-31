@@ -2,11 +2,14 @@ import "server-only";
 import { cookies } from "next/headers";
 import { decodeJwt } from "jose";
 
-export interface Session {
+export interface SessionIdentity {
   sub: string;
   email?: string;
   name?: string;
   emailVerified?: boolean;
+}
+
+export interface Session extends SessionIdentity {
   accessToken: string;
 }
 

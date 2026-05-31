@@ -1,11 +1,13 @@
-import Link from "next/link";
 import {
   ApiError,
   publicApiFetch,
-  formatDateTime,
   getHouseOrgId,
 } from "@organizer-hub/web-shared";
 import type { PublicEventsPage } from "@organizer-hub/web-shared";
+import { Display, Eyebrow } from "@organizer-hub/web-shared/ui";
+import { PublicShell } from "../../components/PublicShell";
+import { EventCard } from "../../components/EventCard";
+import { FilterChips } from "../../components/FilterChips";
 
 export const dynamic = "force-dynamic";
 
@@ -33,15 +35,15 @@ async function fetchLabels(): Promise<PublicLabelChip[]> {
   }
 }
 
-export default async function PublicEventsListPage({
+export default async function EventsPage({
   searchParams,
 }: {
   searchParams: Promise<{ cursor?: string; labelId?: string }>;
 }) {
   const { cursor, labelId } = await searchParams;
+  const labels = await fetchLabels();
 
   let page: PublicEventsPage;
-  const labels = await fetchLabels();
   try {
     const qs = new URLSearchParams({ limit: "20" });
     if (cursor) qs.set("cursor", cursor);
@@ -63,114 +65,47 @@ export default async function PublicEventsListPage({
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 dark:bg-black">
-      <header className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        <div className="max-w-3xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link
-            href="/"
-            className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
-          >
-            OrganizerHub
-          </Link>
-          <Link
-            href="/auth/login"
-            className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          >
-            Sign in
-          </Link>
-        </div>
-      </header>
-
-      <div className="max-w-3xl mx-auto px-6 py-10">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+    <PublicShell>
+      <div
+        className="container container--wide"
+        style={{ paddingTop: 48, paddingBottom: 72 }}
+      >
+        <Eyebrow>The calendar</Eyebrow>
+        <Display as="h1" size="lg" style={{ margin: "12px 0 24px" }}>
           Upcoming events
-        </h1>
-
-        {labels.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <FilterChip
-              href="/events"
-              active={!labelId}
-              label="All"
-            />
-            {labels.map((l) => (
-              <FilterChip
-                key={l.id}
-                href={`/events?labelId=${encodeURIComponent(l.id)}`}
-                active={labelId === l.id}
-                label={l.name}
-              />
-            ))}
-          </div>
-        )}
-
+        </Display>
+        {labels.length > 0 && <FilterChips labels={labels} />}
         {page.items.length === 0 ? (
-          <p className="mt-6 text-sm text-zinc-500">
+          <p className="muted">
             No upcoming events yet — check back soon.
           </p>
         ) : (
-          <ul className="mt-6 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              gap: 22,
+            }}
+          >
             {page.items.map((event) => (
-              <li key={event.id}>
-                <Link
-                  href={`/events/${event.id}`}
-                  className="block px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition"
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-base font-medium text-zinc-900 dark:text-zinc-50">
-                      {event.title}
-                    </p>
-                    {event.label && (
-                      <span className="shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-                        {event.label.name}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {formatDateTime(event.startsAt)} · {event.organization.name}
-                    {event.venue && ` · ${event.venue}`}
-                  </p>
-                </Link>
-              </li>
+              <EventCard key={event.id} event={event} />
             ))}
-          </ul>
+          </div>
         )}
-
         {page.nextCursor && (
-          <div className="mt-6 text-right">
-            <Link
+          <div style={{ marginTop: 32, textAlign: "right" }}>
+            <a
               href={`/events?${new URLSearchParams({
                 cursor: page.nextCursor,
                 ...(labelId ? { labelId } : {}),
               }).toString()}`}
-              className="text-sm text-blue-600 hover:underline"
+              className="link"
             >
               Next page →
-            </Link>
+            </a>
           </div>
         )}
       </div>
-    </main>
-  );
-}
-
-function FilterChip({
-  href,
-  active,
-  label,
-}: {
-  href: string;
-  active: boolean;
-  label: string;
-}) {
-  const base =
-    "rounded-full px-3 py-1 text-xs font-medium transition border";
-  const cls = active
-    ? `${base} bg-zinc-900 dark:bg-zinc-100 text-zinc-50 dark:text-zinc-900 border-transparent`
-    : `${base} bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800`;
-  return (
-    <Link href={href} className={cls}>
-      {label}
-    </Link>
+    </PublicShell>
   );
 }

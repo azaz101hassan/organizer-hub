@@ -14,20 +14,41 @@ Organizer Hub is a unified platform for event organizers and their members. The 
 
 ## Brand Personality
 
-Clear, trustworthy, functional. Confident but not flashy. Designed to get out of the way and let members focus on events, not UI.
+Editorial, considered, premium. The product is a pane of glass over event
+organizers and their members — confident enough to take the visual lead,
+quiet enough to defer to the evenings on the calendar.
+
+Three coherent themes ship together: **Atrium** (editorial ivory + brass,
+the member-app default), **Noir** (cinematic near-black + amber, the admin
+control-room default), and **Vellum** (warm paper + deep forest). All three
+share the same component vocabulary and interaction patterns — a theme
+switch flips tokens, never layouts.
 
 ## Anti-references
 
-- Overly flashy SaaS dashboards with gradient blobs and hero metrics
-- Heavy animation for its own sake
-- Marketing-page aesthetics bleeding into the app shell
+- Stock Tailwind out of the box — zinc-only neutrals, generic blue actions,
+  Arial-fallback typography.
+- Unbranded `create-next-app` shells with default favicons and metadata.
+- Hard-coded color values, fonts, or radii in component JSX — the token
+  layer is the only legitimate place those live.
+- Mixing UI primitives between apps by copy-paste — primitives live in
+  `packages/web-shared/src/ui/`.
 
 ## Design Principles
 
-1. Clarity first: every screen answers one question clearly
-2. Consistency: zinc neutrals, rounded-2xl cards, blue action links — the same patterns across every route
-3. Accessible by default: WCAG AA contrast; reduced motion respected
-4. Data over decoration: tables and lists over cards-with-icons for transactional data
+1. **One token contract.** Color, type, radius, motion, and shadow are
+   declared in CSS variables. Pages reference tokens (`bg-surface`,
+   `text-ink`, `rounded-btn`), never literals.
+2. **Clarity first.** Every screen answers one question for its viewer.
+   Hierarchy is established by type ladder (display / eyebrow / lede / body
+   / muted / faint / mono), not by box decoration.
+3. **Data over decoration.** Lists, tables, and data panels are first-class.
+   The admin app is a control room; the member app is a calendar.
+4. **Accessible by default.** WCAG AA contrast on every theme combination.
+   Visible focus rings on every interactive element. `prefers-reduced-motion`
+   respected.
+5. **Compose, don't fork.** New variants extend a primitive; three forked
+   variants is the signal to refactor, not to add a fourth.
 
 ## Accessibility & Inclusion
 

@@ -9,18 +9,40 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./oidc/pkce": "./src/oidc/pkce.ts",
-    "./oidc/refresh": "./src/oidc/refresh.ts"
+    "./oidc/refresh": "./src/oidc/refresh.ts",
+    "./ui/tokens.css": "./src/ui/tokens.css",
+    "./ui/tokens.theme.noir.css": "./src/ui/tokens.theme.noir.css",
+    "./ui/tokens.theme.vellum.css": "./src/ui/tokens.theme.vellum.css",
+    "./ui/tokens.layout.css": "./src/ui/tokens.layout.css",
+    "./ui/theme": "./src/ui/theme/index.ts",
+    "./ui": {
+      "types": "./src/ui/index.ts",
+      "default": "./src/ui/index.ts"
+    }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
-    "next": "16.2.6"
+    "next": "16.2.6",
+    "react": ">=19",
+    "react-dom": ">=19"
   },
   "dependencies": {
     "jose": "^6.2.3"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }
