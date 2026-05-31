@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   PaymentEventKind,
+  PaymentEventStatus,
   Prisma,
   TicketRequestStatus,
   TicketSource,
@@ -84,6 +85,14 @@ export class StripeWebhookService {
     // cast to widen `event.type` to a plain string.
     if ((event.type as string) === 'checkout.session.created') {
       return this.handleCheckoutCreated(event);
+    }
+
+    if (
+      event.type === 'payment_intent.succeeded' ||
+      event.type === 'payment_intent.payment_failed' ||
+      event.type === 'payment_intent.canceled'
+    ) {
+      return this.handlePaymentIntentTerminal(event);
     }
 
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
@@ -371,6 +380,36 @@ export class StripeWebhookService {
       stripeCheckoutSessionId: session.id,
       ticketRequestId: session.metadata?.ticketRequestId ?? null,
     });
+    return { recorded: false };
+  }
+
+  // Resolve the PENDING ledger row by PI and write its terminal status.
+  // Ordering with checkout.session.completed: this is fine to fire either
+  // before or after — the ticket/membership creation in completed sets
+  // its own state; here we only touch the PaymentEvent row.
+  private async handlePaymentIntentTerminal(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const pi = event.data.object as {
+      id: string;
+      last_payment_error?: { message?: string } | null;
+    };
+    if (event.type === 'payment_intent.succeeded') {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.SUCCEEDED,
+        succeededAt: new Date(),
+      });
+    } else if (event.type === 'payment_intent.payment_failed') {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.FAILED,
+        failureReason: pi.last_payment_error?.message ?? 'unknown',
+      });
+    } else {
+      await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
+        status: PaymentEventStatus.CANCELED,
+        canceledAt: new Date(),
+      });
+    }
     return { recorded: false };
   }
 
