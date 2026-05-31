@@ -95,6 +95,16 @@ export class StripeWebhookService {
       return this.handlePaymentIntentTerminal(event);
     }
 
+    if (event.type === 'charge.refunded') {
+      return this.handleChargeRefunded(event);
+    }
+    if (event.type === 'charge.dispute.created') {
+      return this.handleChargeDisputed(event);
+    }
+    if (event.type === 'invoice.payment_succeeded') {
+      return this.handleInvoicePaid(event);
+    }
+
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
       const customerId = this.extractCustomerId(event);
       if (!customerId) {
@@ -411,6 +421,145 @@ export class StripeWebhookService {
         canceledAt: new Date(),
       });
     }
+    return { recorded: false };
+  }
+
+  // For every Refund object on the Charge, insert one PaymentEvent row.
+  // Idempotent on stripeRefundId — Stripe sends charge.refunded for every
+  // refund created, including replays. Partial refunds are supported by
+  // the partial unique index on payment_events (WHERE kind NOT IN
+  // ('REFUND','DISPUTE')).
+  private async handleChargeRefunded(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const charge = event.data.object as {
+      id: string;
+      currency: string;
+      customer?: string | null;
+      payment_intent?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+      refunds?: { data: Array<{ id: string; amount: number }> } | null;
+    };
+    this.logger.debug(`charge.refunded ${event.id} charge=${charge.id}`);
+    const userId = charge.metadata?.userId;
+    const piId = charge.payment_intent;
+    if (!userId || !piId) {
+      this.logger.warn(
+        `charge.refunded ${event.id} missing userId/PI; skipping`,
+      );
+      return { recorded: false };
+    }
+    const refunds = charge.refunds?.data ?? [];
+    for (const r of refunds) {
+      await this.paymentEvents.insertRefund(this.prisma, {
+        userId,
+        amountCents: r.amount,
+        currency: charge.currency,
+        stripeCustomerId: charge.customer ?? null,
+        stripePaymentIntentId: piId,
+        stripeRefundId: r.id,
+        stripeChargeId: charge.id,
+      });
+    }
+    return { recorded: false };
+  }
+
+  private async handleChargeDisputed(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const dispute = event.data.object as {
+      id: string;
+      amount: number;
+      currency: string;
+      charge: string;
+      payment_intent?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+    };
+    this.logger.debug(`charge.dispute.created ${event.id} dispute=${dispute.id}`);
+    // Stripe sometimes doesn't propagate metadata onto the dispute — fall
+    // back to looking up the charge.
+    let userId = dispute.metadata?.userId;
+    if (!userId) {
+      try {
+        const charge = await this.stripeClient.stripe.charges.retrieve(
+          dispute.charge,
+        );
+        userId = (charge.metadata as Record<string, string>)?.userId;
+      } catch {
+        // fall through to skip
+      }
+    }
+    if (!userId) {
+      this.logger.warn(
+        `charge.dispute.created ${event.id} could not resolve userId; skipping`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.insertDispute(this.prisma, {
+      userId,
+      amountCents: dispute.amount,
+      currency: dispute.currency,
+      stripeChargeId: dispute.charge,
+      stripePaymentIntentId: dispute.payment_intent ?? null,
+      description: `Dispute ${dispute.id}`,
+    });
+    return { recorded: false };
+  }
+
+  // Subscription renewals. The first invoice for a new subscription rides
+  // through checkout.session.created/completed → a PaymentEvent row was
+  // ALREADY created there. For renewal invoices (subscription already
+  // existed), we insert a new MEMBERSHIP row keyed on the renewal PI.
+  private async handleInvoicePaid(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const inv = event.data.object as {
+      id: string;
+      amount_paid: number;
+      currency: string;
+      customer: string;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      billing_reason?: string;
+      metadata?: Record<string, string | undefined> | null;
+    };
+    this.logger.debug(
+      `invoice.payment_succeeded ${event.id} invoice=${inv.id} reason=${inv.billing_reason}`,
+    );
+    if (inv.billing_reason === 'subscription_create') {
+      return { recorded: false }; // first invoice; already counted
+    }
+    if (!inv.payment_intent) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${event.id} has no PI; skipping`,
+      );
+      return { recorded: false };
+    }
+    let userId: string | undefined = inv.metadata?.userId;
+    if (!userId && inv.subscription) {
+      try {
+        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
+          inv.subscription,
+        );
+        userId = (sub.metadata as Record<string, string>)?.userId;
+      } catch {
+        // fall through
+      }
+    }
+    if (!userId) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${event.id} could not resolve userId; skipping`,
+      );
+      return { recorded: false };
+    }
+    await this.paymentEvents.insertRenewal(this.prisma, {
+      userId,
+      amountCents: inv.amount_paid,
+      currency: inv.currency,
+      stripeCustomerId: inv.customer,
+      stripePaymentIntentId: inv.payment_intent,
+      stripeInvoiceId: inv.id,
+    });
     return { recorded: false };
   }
 
