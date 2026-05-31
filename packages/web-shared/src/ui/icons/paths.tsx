@@ -25,7 +25,22 @@ export type IconName =
   | "settings"
   | "moon"
   | "edit"
-  | "eye";
+  | "eye"
+  | "search"
+  | "refresh"
+  | "dollar"
+  | "card"
+  | "pie"
+  | "mail"
+  | "filter"
+  | "dots"
+  | "trendUp"
+  | "trendDown"
+  | "home"
+  | "arrowUpRight"
+  | "cal2"
+  | "tag"
+  | "download";
 
 const p = {
   fill: "none",
@@ -173,6 +188,89 @@ export const ICON_PATHS: Record<IconName, ReactElement> = {
     <g {...p}>
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
       <circle cx="12" cy="12" r="2.8" />
+    </g>
+  ),
+  search: (
+    <g {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" />
+    </g>
+  ),
+  refresh: (
+    <g {...p}>
+      <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6M20.5 12a8.5 8.5 0 0 1-14.5 6M18 3v3h-3M6 21v-3h3" />
+    </g>
+  ),
+  dollar: (
+    <g {...p}>
+      <path d="M12 2.5v19M16.5 6.5c-1-1.3-2.7-2-4.5-2-2.8 0-4.5 1.4-4.5 3.4 0 4.6 9 2.6 9 7.2 0 2-1.9 3.4-4.5 3.4-1.9 0-3.7-.8-4.7-2.1" />
+    </g>
+  ),
+  card: (
+    <g {...p}>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.2" />
+      <path d="M2.5 9.5h19M6 14.5h4" />
+    </g>
+  ),
+  pie: (
+    <g {...p}>
+      <path d="M12 3a9 9 0 1 0 9 9h-9V3Z" />
+      <path d="M14 3.5A9 9 0 0 1 20.5 10H14V3.5Z" />
+    </g>
+  ),
+  mail: (
+    <g {...p}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M4 7l8 6 8-6" />
+    </g>
+  ),
+  filter: (
+    <g {...p}>
+      <path d="M3 5h18l-7 8.5V20l-4 1v-7.5L3 5Z" />
+    </g>
+  ),
+  dots: (
+    <g {...p}>
+      <circle cx="5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="19" cy="12" r="1.4" />
+    </g>
+  ),
+  trendUp: (
+    <g {...p}>
+      <path d="M3 17l6-6 4 4 8-8M21 7v5M21 7h-5" />
+    </g>
+  ),
+  trendDown: (
+    <g {...p}>
+      <path d="M3 7l6 6 4-4 8 8M21 17v-5M21 17h-5" />
+    </g>
+  ),
+  home: (
+    <g {...p}>
+      <path d="M4 11.5 12 4l8 7.5M6 10v9.5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V10" />
+    </g>
+  ),
+  arrowUpRight: (
+    <g {...p}>
+      <path d="M7 17 17 7M8 7h9v9" />
+    </g>
+  ),
+  cal2: (
+    <g {...p}>
+      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 2.5v4M16 2.5v4M8 14h2M14 14h2M8 17.5h2" />
+    </g>
+  ),
+  tag: (
+    <g {...p}>
+      <path d="M3 11.5V5a2 2 0 0 1 2-2h6.5a2 2 0 0 1 1.4.6l7 7a2 2 0 0 1 0 2.8l-6.5 6.5a2 2 0 0 1-2.8 0l-7-7A2 2 0 0 1 3 11.5Z" />
+      <circle cx="7.5" cy="7.5" r="1.4" />
+    </g>
+  ),
+  download: (
+    <g {...p}>
+      <path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
     </g>
   ),
 };

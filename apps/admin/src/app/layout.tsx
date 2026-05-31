@@ -7,6 +7,7 @@ import {
   Spline_Sans_Mono,
 } from "next/font/google";
 import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme";
+import { AdminShell } from "../components/AdminShell";
 import "./globals.css";
 
 const cormorant = Cormorant_Garamond({
@@ -56,7 +57,9 @@ export default async function RootLayout({
     .join(" ");
   return (
     <html lang="en" data-theme={theme} className={`${fontVars} h-full`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AdminShell>{children}</AdminShell>
+      </body>
     </html>
   );
 }

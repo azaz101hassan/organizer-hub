@@ -27,3 +27,4 @@ export { NavItem } from "./nav/NavItem";
 
 // Overlays
 export { ToastProvider, useToast, type ToastTone, type ToastItem } from "./overlays/Toast";
+export { DropdownMenu, DropdownTrigger, DropdownContent } from "./overlays/DropdownMenu";
