@@ -33,7 +33,6 @@ export const ADMIN_NAV: NavGroup[] = [
     label: "Finance",
     items: [
       { label: "Transactions", href: "/transactions", icon: "dollar" },
-      { label: "Requests", href: "/requests", icon: "ticket" },
     ],
   },
   {

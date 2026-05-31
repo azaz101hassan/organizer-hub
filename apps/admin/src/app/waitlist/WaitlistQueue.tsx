@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdminTicketRequestView } from "@organizer-hub/web-shared";
 import { formatDateTime } from "@organizer-hub/web-shared/client";
+import { Button, Card, Pill } from "@organizer-hub/web-shared/ui";
 import {
   approveRequest,
   refetchQueue,
@@ -163,53 +164,79 @@ export default function WaitlistQueue({
   const grouped = groupByEvent(rows);
 
   return (
-    <div className="mt-6">
-      <div className="flex items-center justify-between">
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+        }}
+      >
         <ConnectionIndicator conn={conn} />
         {truncated && (
-          <p className="text-xs text-zinc-500">
+          <span className="faint" style={{ fontSize: 12 }}>
             Showing the most recent requests.
-          </p>
+          </span>
         )}
       </div>
 
-      {/* Screen-reader announcements for queue changes (R22). */}
+      {/* Screen-reader announcements for queue changes. */}
       <div role="log" aria-live="polite" className="sr-only">
         {announcement}
       </div>
 
       {conn === "revoked" && (
-        <div className="mt-4 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 p-4 text-sm text-red-700 dark:text-red-300">
+        <div
+          className="card"
+          style={{
+            padding: "14px 18px",
+            marginBottom: 20,
+            borderColor: "var(--bad)",
+            background: "var(--bad-soft)",
+            color: "var(--bad)",
+            fontSize: 14,
+          }}
+        >
           Your access has changed — reload the page.
         </div>
       )}
 
       {rows.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-10 text-center">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+        <div
+          className="card"
+          style={{
+            padding: "48px 24px",
+            textAlign: "center",
+            borderStyle: "dashed",
+          }}
+        >
+          <p className="muted" style={{ fontSize: 14 }}>
             No pending requests.
           </p>
         </div>
       ) : (
-        <div className="mt-4 space-y-6">
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {grouped.map(([eventTitle, eventRows]) => (
             <section key={eventTitle}>
-              <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <p className="eyebrow eyebrow--muted" style={{ marginBottom: 8 }}>
                 {eventTitle}
-              </h2>
-              <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                {eventRows.map((row) => (
-                  <RequestRow
-                    key={row.id}
-                    orgId={orgId}
-                    row={row}
-                    onResolved={(verb) => {
-                      dropRow(row.id);
-                      announce(`Request from ${displayName(row)} ${verb}`);
-                    }}
-                  />
-                ))}
-              </ul>
+              </p>
+              <Card>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {eventRows.map((row) => (
+                    <RequestRow
+                      key={row.id}
+                      orgId={orgId}
+                      row={row}
+                      onResolved={(verb) => {
+                        dropRow(row.id);
+                        announce(`Request from ${displayName(row)} ${verb}`);
+                      }}
+                    />
+                  ))}
+                </ul>
+              </Card>
             </section>
           ))}
         </div>
@@ -233,23 +260,63 @@ function groupByEvent(
 function ConnectionIndicator({ conn }: { conn: ConnState }) {
   if (conn === "live") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          fontSize: 12,
+          color: "var(--good)",
+          fontWeight: 600,
+        }}
+      >
+        <span
+          className="dot"
+          style={{ background: "var(--good)", flexShrink: 0 }}
+        />
         Live
       </span>
     );
   }
   if (conn === "reconnecting") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-        <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          fontSize: 12,
+          color: "var(--warn)",
+          fontWeight: 600,
+        }}
+      >
+        <span
+          className="dot"
+          style={{
+            background: "var(--warn)",
+            flexShrink: 0,
+            animation: "ping 1.2s cubic-bezier(0,0,0.2,1) infinite",
+          }}
+        />
         Reconnecting…
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
-      <span className="h-2 w-2 rounded-full bg-red-500" />
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        fontSize: 12,
+        color: "var(--bad)",
+        fontWeight: 600,
+      }}
+    >
+      <span
+        className="dot"
+        style={{ background: "var(--bad)", flexShrink: 0 }}
+      />
       Disconnected
     </span>
   );
@@ -266,6 +333,7 @@ function RequestRow({
 }) {
   const [pending, setPending] = useState<null | "approve" | "reject">(null);
   const [confirmingOverCap, setConfirmingOverCap] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const atCap =
@@ -276,7 +344,9 @@ function RequestRow({
     setError(null);
     const res = await approveRequest(orgId, row.id);
     if (res.ok) {
-      onResolved("approved");
+      setLeaving(true);
+      // Let the rowOut animation play before the parent removes the row.
+      setTimeout(() => onResolved("approved"), 420);
       return;
     }
     setError(res.error ?? "Approve failed.");
@@ -289,7 +359,8 @@ function RequestRow({
     setError(null);
     const res = await rejectRequest(orgId, row.id);
     if (res.ok) {
-      onResolved("rejected");
+      setLeaving(true);
+      setTimeout(() => onResolved("rejected"), 420);
       return;
     }
     setError(res.error ?? "Reject failed.");
@@ -299,67 +370,84 @@ function RequestRow({
   const busy = pending !== null;
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-          {row.userName ?? row.userEmail ?? "Unknown requester"}
-        </p>
-        <p className="mt-0.5 text-xs text-zinc-500">
+    <li
+      className={["qrow", leaving ? "qrow--leaving" : ""].filter(Boolean).join(" ")}
+      style={{ flexWrap: "wrap", justifyContent: "space-between" }}
+    >
+      <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+            {row.userName ?? row.userEmail ?? "Unknown requester"}
+          </span>
+          <Pill tone={row.intent === "PAID" ? "paid" : "pending"}>
+            {row.intent === "PAID" ? "Paid" : "Free"}
+          </Pill>
+        </div>
+        <p className="faint" style={{ fontSize: 12, marginTop: 3 }}>
           {row.ticketType.name}
-          {" · "}
-          {row.intent === "PAID" ? "Paid" : "Free"}
           {" · "}
           requested {formatDateTime(row.createdAt)}
         </p>
         {error && (
-          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>
+          <p style={{ marginTop: 4, fontSize: 12, color: "var(--bad)" }}>
+            {error}
+          </p>
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div
+        style={{
+          display: "flex",
+          flexShrink: 0,
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
         {confirmingOverCap ? (
           <>
-            <span className="text-xs text-amber-700 dark:text-amber-400">
-              At cap ({row.issuedCount}/{row.ticketType.cap}) — confirm approve?
+            <span
+              style={{ fontSize: 12, color: "var(--warn)", fontWeight: 500 }}
+            >
+              At cap ({row.issuedCount}/{row.ticketType.cap}) — confirm?
             </span>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={busy}
               onClick={() => void doApprove()}
-              className="rounded-full bg-amber-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-amber-500 disabled:opacity-50 transition"
             >
-              {pending === "approve" ? "Approving…" : "Confirm"}
-            </button>
-            <button
-              type="button"
+              {pending === "approve" ? "Approving…" : "Confirm approve"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={busy}
               onClick={() => setConfirmingOverCap(false)}
-              className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition"
             >
               Cancel
-            </button>
+            </Button>
           </>
         ) : (
           <>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={busy}
               onClick={() => {
                 if (atCap) setConfirmingOverCap(true);
                 else void doApprove();
               }}
-              className="rounded-full bg-emerald-600 text-white px-3 py-1.5 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 transition"
             >
               {pending === "approve" ? "Approving…" : "Approve"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
               disabled={busy}
               onClick={() => void doReject()}
-              className="rounded-full border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 px-3 py-1.5 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 transition"
             >
               {pending === "reject" ? "Rejecting…" : "Reject"}
-            </button>
+            </Button>
           </>
         )}
       </div>

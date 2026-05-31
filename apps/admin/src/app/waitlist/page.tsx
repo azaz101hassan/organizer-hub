@@ -1,11 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { ApiError, apiFetch, UnauthorizedError, getHouseOrgId } from "@organizer-hub/web-shared";
 import type { AdminQueuePage } from "@organizer-hub/web-shared";
+import { PageHead } from "../../components/PageHead";
 import WaitlistQueue from "./WaitlistQueue";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminRequestsPage() {
+export default async function AdminWaitlistPage() {
   const orgId = getHouseOrgId();
 
   let page: AdminQueuePage;
@@ -32,14 +33,11 @@ export default async function AdminRequestsPage() {
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Ticket requests
-      </h1>
-      <p className="mt-1 text-sm text-zinc-500">
-        Pending requests for at-capacity tiers across this organization.
-      </p>
-
+    <>
+      <PageHead
+        title="Waitlist"
+        sub="Pending ticket requests for at-capacity tiers across this organization."
+      />
       <WaitlistQueue
         orgId={orgId}
         apiBase={apiBase}
@@ -47,6 +45,6 @@ export default async function AdminRequestsPage() {
         initialToken={token}
         truncated={page.nextCursor !== null}
       />
-    </div>
+    </>
   );
 }
