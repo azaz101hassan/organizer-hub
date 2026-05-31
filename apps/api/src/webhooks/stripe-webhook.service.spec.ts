@@ -102,6 +102,37 @@ describe('StripeWebhookService — payment_intent.* transitions', () => {
     expect(row?.failureReason).toBe('card declined');
   });
 
+  it('payment_intent.payment_failed without last_payment_error leaves failureReason null', async () => {
+    // Arrange
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: 'org_house_000000000000000001',
+        userId: 'user_test',
+        kind: PaymentEventKind.TICKET,
+        status: PaymentEventStatus.PENDING,
+        amountCents: 1000,
+        currency: 'usd',
+        stripePaymentIntentId: 'pi_t_fail_bare',
+        stripeCheckoutSessionId: 'cs_t_fail_bare',
+      },
+    });
+
+    // Act — last_payment_error absent (Stripe sometimes omits it)
+    const event = {
+      id: 'evt_fail_bare',
+      type: 'payment_intent.payment_failed',
+      data: { object: { id: 'pi_t_fail_bare' } },
+    } as unknown as Stripe.Event;
+    await service.handle(event);
+
+    // Assert
+    const row = await prisma.paymentEvent.findFirst({
+      where: { stripePaymentIntentId: 'pi_t_fail_bare' },
+    });
+    expect(row?.status).toBe(PaymentEventStatus.FAILED);
+    expect(row?.failureReason).toBeNull();
+  });
+
   it('payment_intent.canceled transitions PENDING -> CANCELED with canceledAt', async () => {
     // Arrange
     await prisma.paymentEvent.create({

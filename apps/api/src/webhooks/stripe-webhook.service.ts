@@ -394,6 +394,7 @@ export class StripeWebhookService {
       id: string;
       last_payment_error?: { message?: string } | null;
     };
+    this.logger.debug(`${event.type} ${event.id} pi=${pi.id}`);
     if (event.type === 'payment_intent.succeeded') {
       await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
         status: PaymentEventStatus.SUCCEEDED,
@@ -402,7 +403,7 @@ export class StripeWebhookService {
     } else if (event.type === 'payment_intent.payment_failed') {
       await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
         status: PaymentEventStatus.FAILED,
-        failureReason: pi.last_payment_error?.message ?? 'unknown',
+        failureReason: pi.last_payment_error?.message,
       });
     } else {
       await this.paymentEvents.finalizeCharge(this.prisma, pi.id, {
