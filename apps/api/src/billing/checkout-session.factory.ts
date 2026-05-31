@@ -38,6 +38,7 @@ export class CheckoutSessionFactory {
       this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
 
     const metadata: Record<string, string> = {
+      source: 'ticket',
       userId: params.userSub,
       eventId: params.eventId,
       ticketTypeId: params.ticketTypeId,
