@@ -16,8 +16,9 @@ export class PublicEventsController {
   list(
     @Query('cursor') cursor?: string,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+    @Query('labelId') labelId?: string,
   ) {
-    return this.events.listUpcoming({ cursor, limit });
+    return this.events.listUpcoming({ cursor, limit, labelId });
   }
 
   @Get(':id')

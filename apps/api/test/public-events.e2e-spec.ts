@@ -11,6 +11,7 @@ type PublicEvent = {
   title: string;
   slug: string;
   organization: { name: string; slug: string };
+  label: { id: string; name: string; slug: string } | null;
 };
 type PublicList = { items: PublicEvent[]; nextCursor: string | null };
 
@@ -196,6 +197,51 @@ describe('PublicEvents (e2e)', () => {
       await request(app.getHttpServer())
         .get('/public/events?cursor=not-a-real-cursor')
         .expect(400);
+    });
+
+    it('filters by ?labelId and embeds the label on each item', async () => {
+      const concerts = await prisma.eventLabel.create({
+        data: { organizationId: orgId, name: 'Concerts', slug: 'concerts' },
+      });
+      const workshops = await prisma.eventLabel.create({
+        data: { organizationId: orgId, name: 'Workshops', slug: 'workshops' },
+      });
+      await prisma.event.create({
+        data: {
+          organizationId: orgId,
+          title: 'Concert Night',
+          slug: 'concert-night',
+          startsAt: daysFromNow(2),
+          status: EventStatus.PUBLISHED,
+          publishedAt: new Date(),
+          createdBy: 'owner-sub',
+          labelId: concerts.id,
+        },
+      });
+      await prisma.event.create({
+        data: {
+          organizationId: orgId,
+          title: 'Workshop Day',
+          slug: 'workshop-day',
+          startsAt: daysFromNow(3),
+          status: EventStatus.PUBLISHED,
+          publishedAt: new Date(),
+          createdBy: 'owner-sub',
+          labelId: workshops.id,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/public/events?labelId=${concerts.id}`)
+        .expect(200);
+      const items = jsonBody<PublicList>(res).items;
+      expect(items).toHaveLength(1);
+      expect(items[0].title).toBe('Concert Night');
+      expect(items[0].label).toEqual({
+        id: concerts.id,
+        name: 'Concerts',
+        slug: 'concerts',
+      });
     });
   });
 

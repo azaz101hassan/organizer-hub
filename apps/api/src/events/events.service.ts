@@ -19,6 +19,7 @@ export interface EventView {
   status: EventStatus;
   publishedAt: Date | null;
   membersExcluded: boolean;
+  labelId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +36,7 @@ interface DbEvent {
   status: EventStatus;
   publishedAt: Date | null;
   membersExcluded: boolean;
+  labelId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +54,7 @@ function toView(e: DbEvent): EventView {
     status: e.status,
     publishedAt: e.publishedAt,
     membersExcluded: e.membersExcluded,
+    labelId: e.labelId,
     createdAt: e.createdAt,
     updatedAt: e.updatedAt,
   };
@@ -70,6 +73,23 @@ function assertDateRange(
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Verifies a labelId is set and belongs to the given org. Used by create and
+  // update — both reject a labelId pointing at another org's label as 400.
+  private async assertLabelInOrg(
+    orgId: string,
+    labelId: string,
+  ): Promise<void> {
+    const label = await this.prisma.eventLabel.findUnique({
+      where: { id: labelId },
+      select: { organizationId: true },
+    });
+    if (!label || label.organizationId !== orgId) {
+      throw new BadRequestException(
+        'Label does not belong to the event organization',
+      );
+    }
+  }
+
   async create(
     orgId: string,
     userId: string,
@@ -79,9 +99,11 @@ export class EventsService {
       startsAt: Date;
       endsAt?: Date;
       venue?: string;
+      labelId?: string;
     },
   ): Promise<EventView> {
     assertDateRange(input.startsAt, input.endsAt);
+    if (input.labelId) await this.assertLabelInOrg(orgId, input.labelId);
     const baseSlug = slugify(input.title, 'event');
     const event = await createWithUniqueSlug(baseSlug, (slug) =>
       this.prisma.event.create({
@@ -93,6 +115,7 @@ export class EventsService {
           startsAt: input.startsAt,
           endsAt: input.endsAt ?? null,
           venue: input.venue ?? null,
+          labelId: input.labelId ?? null,
           createdBy: userId,
         },
       }),
@@ -100,9 +123,15 @@ export class EventsService {
     return toView(event);
   }
 
-  async listForOrg(orgId: string): Promise<EventView[]> {
+  async listForOrg(
+    orgId: string,
+    filters: { labelId?: string } = {},
+  ): Promise<EventView[]> {
     const rows = await this.prisma.event.findMany({
-      where: { organizationId: orgId },
+      where: {
+        organizationId: orgId,
+        ...(filters.labelId ? { labelId: filters.labelId } : {}),
+      },
       orderBy: { startsAt: 'asc' },
     });
     return rows.map(toView);
@@ -127,6 +156,7 @@ export class EventsService {
       venue?: string;
       status?: EventStatus;
       membersExcluded?: boolean;
+      labelId?: string | null;
     },
   ): Promise<EventView> {
     const current = await this.prisma.event.findFirst({
@@ -139,6 +169,12 @@ export class EventsService {
         patch.startsAt ?? current.startsAt,
         patch.endsAt ?? current.endsAt ?? undefined,
       );
+    }
+
+    // labelId semantics: undefined leaves it alone; null clears it;
+    // a string id is set after verifying same-org membership.
+    if (typeof patch.labelId === 'string') {
+      await this.assertLabelInOrg(orgId, patch.labelId);
     }
 
     const { status: _ignored, ...fields } = patch;

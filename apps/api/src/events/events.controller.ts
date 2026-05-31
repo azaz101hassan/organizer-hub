@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { OrganizationRole } from '@organizer-hub/db/api';
@@ -40,8 +41,11 @@ export class EventsController {
     OrganizationRole.ADMIN,
     OrganizationRole.MEMBER,
   )
-  list(@Param('orgId') orgId: string) {
-    return this.events.listForOrg(orgId);
+  list(
+    @Param('orgId') orgId: string,
+    @Query('labelId') labelId?: string,
+  ) {
+    return this.events.listForOrg(orgId, { labelId });
   }
 
   @Get(':eventId')

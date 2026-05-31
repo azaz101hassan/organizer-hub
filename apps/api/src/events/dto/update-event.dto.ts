@@ -42,4 +42,12 @@ export class UpdateEventDto {
   @IsOptional()
   @IsBoolean()
   membersExcluded?: boolean;
+
+  // null is the explicit "clear the label" signal; undefined leaves it
+  // unchanged. @IsOptional() in class-validator skips IsString when the value
+  // is null or undefined, so both pass and the service distinguishes by
+  // checking for `=== null`.
+  @IsOptional()
+  @IsString()
+  labelId?: string | null;
 }
