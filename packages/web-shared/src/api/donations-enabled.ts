@@ -7,7 +7,8 @@ interface OrgFlags {
 /**
  * Resolves the current organization's donations feature flag.
  * Used by member and admin server components to 404 donation routes
- * when the flag is off. Cached per request via React's cache().
+ * when the flag is off. Callers in server components should wrap
+ * this in React's cache() for per-request deduplication.
  */
 export async function donationsEnabledForOrg(): Promise<boolean> {
   try {
