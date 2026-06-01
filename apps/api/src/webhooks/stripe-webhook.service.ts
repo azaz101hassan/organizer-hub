@@ -623,29 +623,52 @@ export class StripeWebhookService {
       subscription?: string | null;
       billing_reason?: string;
       metadata?: Record<string, string | undefined> | null;
+      // Stripe puts subscription metadata here in production when the invoice
+      // does not carry its own metadata field (the common case for renewals).
+      subscription_details?: { metadata?: Record<string, string | undefined> | null } | null;
       charge?: string | null;
     };
     this.logger.debug(
       `invoice.payment_succeeded ${event.id} invoice=${inv.id} reason=${inv.billing_reason}`,
     );
 
-    // Resolve subscription metadata so we can detect donation invoices.
-    // Try invoice.metadata first (fastest); fall back to subscription retrieval.
-    let subMeta: Record<string, string | undefined> | null =
-      inv.metadata ?? null;
-    if ((!subMeta?.source || !subMeta?.donationId) && inv.subscription) {
+    // Resolve subscription metadata so we can detect donation invoices and
+    // resolve the membership userId.  Priority order:
+    //   1. inv.metadata         — set by the checkout session (fastest, no API call)
+    //   2. inv.subscription_details.metadata — Stripe embeds sub metadata here on
+    //      production renewals without a separate retrieve
+    //   3. stripe.subscriptions.retrieve()  — last resort; only one call per event
+    let resolvedSubMetadata: Record<string, string | undefined> | null = null;
+
+    const invMeta = inv.metadata ?? null;
+    const detailsMeta = inv.subscription_details?.metadata ?? null;
+
+    if (invMeta?.source || invMeta?.userId) {
+      // inv.metadata has useful fields — use it directly.
+      resolvedSubMetadata = invMeta;
+    } else if (detailsMeta?.source || detailsMeta?.userId) {
+      // subscription_details.metadata carries what we need — no API call.
+      resolvedSubMetadata = detailsMeta;
+    } else if (inv.subscription) {
+      // Neither inline source has the fields we need; fall back to a single
+      // subscriptions.retrieve so both the donation arm and the membership
+      // userId resolution share one result.
       try {
         const sub = await this.stripeClient.stripe.subscriptions.retrieve(
           inv.subscription,
         );
-        subMeta = (sub.metadata as Record<string, string | undefined>) ?? null;
-      } catch {
-        // fall through; sub lookup is best-effort
+        resolvedSubMetadata =
+          (sub.metadata as Record<string, string | undefined>) ?? null;
+      } catch (err) {
+        this.logger.warn(
+          `invoice.payment_succeeded ${event.id} could not retrieve subscription ${inv.subscription}: ${err instanceof Error ? err.message : String(err)}; continuing without sub metadata`,
+        );
+        // fall through; resolvedSubMetadata stays null
       }
     }
 
-    if (subMeta?.source === 'donation') {
-      return this.handleDonationInvoicePaid(inv, subMeta, event.id);
+    if (resolvedSubMetadata?.source === 'donation') {
+      return this.handleDonationInvoicePaid(inv, resolvedSubMetadata, event.id);
     }
 
     // ---- Membership renewal path ----
@@ -658,17 +681,10 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
-    let userId: string | undefined = inv.metadata?.userId;
-    if (!userId && inv.subscription) {
-      try {
-        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
-          inv.subscription,
-        );
-        userId = (sub.metadata as Record<string, string>)?.userId;
-      } catch {
-        // fall through
-      }
-    }
+    // resolvedSubMetadata already holds the single retrieve result (if one was
+    // needed). No second retrieve.
+    const userId: string | undefined =
+      inv.metadata?.userId ?? resolvedSubMetadata?.userId;
     if (!userId) {
       this.logger.warn(
         `invoice.payment_succeeded ${event.id} could not resolve userId; skipping`,
@@ -755,6 +771,15 @@ export class StripeWebhookService {
       return { recorded: false };
     }
 
+    // Guard: skip replayed invoices against a since-canceled donation so a
+    // historical webhook replay does not pump fresh PaymentEvents into the ledger.
+    if (donation.status === DonationStatus.CANCELED) {
+      this.logger.warn(
+        `invoice.payment_succeeded for canceled donation ${donation.id} (invoice ${inv.id}); skipping`,
+      );
+      return { recorded: false };
+    }
+
     // Promote PENDING → ACTIVE regardless of billing_reason.
     if (donation.status === DonationStatus.PENDING) {
       await this.prisma.donation.update({
@@ -778,22 +803,37 @@ export class StripeWebhookService {
       return { recorded: false };
     }
 
-    await this.prisma.paymentEvent.create({
-      data: {
-        organizationId: HOUSE_ORG_ID,
-        userId: donation.userId,
-        kind: PaymentEventKind.DONATION,
-        status: PaymentEventStatus.SUCCEEDED,
-        amountCents: inv.amount_paid,
-        currency: inv.currency,
-        donationId: donation.id,
-        stripeInvoiceId: inv.id,
-        stripePaymentIntentId: inv.payment_intent ?? null,
-        stripeChargeId: inv.charge ?? null,
-        stripeCustomerId: inv.customer,
-        succeededAt: new Date(),
-      },
-    });
+    // Wrap in try/catch to handle concurrent redelivery races: two deliveries
+    // both pass the findFirst check (TOCTOU), then both attempt create; the
+    // second hits the (stripePaymentIntentId, kind) partial unique and throws
+    // P2002. When payment_intent is null (zero-amount / out-of-band), no unique
+    // trips — the catch still prevents a double insert from inflating raisedCents.
+    try {
+      await this.prisma.paymentEvent.create({
+        data: {
+          organizationId: HOUSE_ORG_ID,
+          userId: donation.userId,
+          kind: PaymentEventKind.DONATION,
+          status: PaymentEventStatus.SUCCEEDED,
+          amountCents: inv.amount_paid,
+          currency: inv.currency,
+          donationId: donation.id,
+          stripeInvoiceId: inv.id,
+          stripePaymentIntentId: inv.payment_intent ?? null,
+          stripeChargeId: inv.charge ?? null,
+          stripeCustomerId: inv.customer,
+          succeededAt: new Date(),
+        },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return { recorded: false };
+      }
+      throw err;
+    }
     return { recorded: false };
   }
 

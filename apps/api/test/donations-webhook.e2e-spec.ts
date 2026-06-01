@@ -739,4 +739,166 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
     expect(newPe!.donationId).toBe(donation.id);
     expect(newPe!.status).toBe('SUCCEEDED');
   });
+
+  // Retrieve-fallback path: production invoices carry donation metadata on the
+  // subscription object, not on inv.metadata.  The handler must retrieve the sub
+  // to resolve source/donationId and then dispatch to the donation arm correctly.
+  it('renewal with metadata only on subscription (retrieve-fallback): promotes PENDING→ACTIVE and writes PE', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'PENDING',
+        stripeSubscriptionId: 'sub_inv_retrieve_1',
+        stripeCustomerId: 'cus_inv_retrieve_1',
+      }),
+    });
+
+    // Seed the subscription in FakeStripe with donation metadata — this is what
+    // the handler will retrieve when inv.metadata is empty.
+    fakeStripe.seedSubscription({
+      id: 'sub_inv_retrieve_1',
+      customer: 'cus_inv_retrieve_1',
+      status: 'active',
+      cancel_at_period_end: false,
+      metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      items: { data: [] },
+    });
+
+    // inv.metadata is empty and subscription_details is absent — forces retrieve.
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_test_retrieve_1',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_retrieve_1',
+          payment_intent: 'pi_inv_retrieve_1',
+          subscription: 'sub_inv_retrieve_1',
+          billing_reason: 'subscription_cycle',
+          metadata: {},
+          // subscription_details intentionally absent
+        },
+        'evt_inv_retrieve_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE');
+
+    const newPe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_test_retrieve_1', kind: 'DONATION' },
+    });
+    expect(newPe).not.toBeNull();
+    expect(newPe!.donationId).toBe(donation.id);
+    expect(newPe!.status).toBe('SUCCEEDED');
+  });
+
+  // subscription_details.metadata path: Stripe embeds sub metadata inline on
+  // the invoice object in production, avoiding a retrieve call altogether.
+  it('renewal with metadata in subscription_details (no retrieve needed): promotes PENDING→ACTIVE and writes PE', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'PENDING',
+        stripeSubscriptionId: 'sub_inv_details_1',
+        stripeCustomerId: 'cus_inv_details_1',
+      }),
+    });
+
+    const retrieveCallsBefore = fakeStripe.callsFor('subscriptions.retrieve').length;
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_test_details_1',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_details_1',
+          payment_intent: 'pi_inv_details_1',
+          subscription: 'sub_inv_details_1',
+          billing_reason: 'subscription_cycle',
+          metadata: {},
+          subscription_details: {
+            metadata: { source: 'donation', donationId: donation.id, userId: USER },
+          },
+        },
+        'evt_inv_details_1',
+      ),
+    );
+
+    // No retrieve should have been issued — metadata came from subscription_details.
+    const retrieveCallsAfter = fakeStripe.callsFor('subscriptions.retrieve').length;
+    expect(retrieveCallsAfter).toBe(retrieveCallsBefore);
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE');
+
+    const newPe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_test_details_1', kind: 'DONATION' },
+    });
+    expect(newPe).not.toBeNull();
+    expect(newPe!.donationId).toBe(donation.id);
+    expect(newPe!.status).toBe('SUCCEEDED');
+  });
+
+  // CANCELED guard: a replay of a historical invoice against a since-canceled
+  // donation must not write a fresh PaymentEvent into the ledger.
+  it('renewal against a CANCELED donation: skips PE insert', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'CANCELED',
+        stripeSubscriptionId: 'sub_inv_canceled_1',
+        stripeCustomerId: 'cus_inv_canceled_1',
+      }),
+    });
+
+    const initialPeCount = await prisma.paymentEvent.count();
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'invoice.payment_succeeded',
+          {
+            id: 'in_test_canceled_1',
+            amount_paid: 2500,
+            currency: 'usd',
+            customer: 'cus_inv_canceled_1',
+            payment_intent: 'pi_inv_canceled_1',
+            subscription: 'sub_inv_canceled_1',
+            billing_reason: 'subscription_cycle',
+            metadata: { source: 'donation', donationId: donation.id, userId: USER },
+          },
+          'evt_inv_canceled_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    // Donation status must remain CANCELED — not flipped to ACTIVE.
+    const afterHandle = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(afterHandle.status).toBe('CANCELED');
+
+    // No new PaymentEvent row was inserted.
+    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+  });
 });
