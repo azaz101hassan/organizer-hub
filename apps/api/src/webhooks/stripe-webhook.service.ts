@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  DonationStatus,
   PaymentEventKind,
   PaymentEventStatus,
   Prisma,
@@ -127,6 +128,13 @@ export class StripeWebhookService {
     const session = event.data.object as CheckoutSessionLike;
     const customerId = this.unwrapId(session.customer);
 
+    // Donation sessions must be intercepted BEFORE the mode-based branches.
+    // A one-time donation also has mode='payment', so without this guard it
+    // would fall through to issueTicketFromSession and mint a free Ticket.
+    if (session.metadata?.source === 'donation') {
+      return this.handleDonationCheckoutCompleted(session, event.id);
+    }
+
     if (session.mode === 'payment') {
       return this.issueTicketFromSession(event.id, session);
     }
@@ -140,6 +148,92 @@ export class StripeWebhookService {
       return { recorded: false };
     }
     await this.memberships.syncStripeData(customerId);
+    return { recorded: false };
+  }
+
+  // Resolves the Donation row for a completed donation Checkout Session and
+  // updates it to reflect the new state:
+  //   - mode=payment  (one-time):   PENDING -> COMPLETED, stamp stripeCustomerId
+  //   - mode=subscription (recurring): stamp stripeCustomerId + stripeSubscriptionId,
+  //     leave status at PENDING (U11 will promote to ACTIVE on invoice.paid)
+  //
+  // Also stamps donationId on the existing PENDING DONATION PaymentEvent that
+  // handleCheckoutCreated wrote with stripeCheckoutSessionId — without this
+  // stamp the Phase D aggregates (raisedCents/donorCount) never resolve for
+  // one-time donations because they JOIN payment_events via donation_id.
+  private async handleDonationCheckoutCompleted(
+    session: CheckoutSessionLike,
+    webhookEventId: string,
+  ): Promise<WebhookHandleResult> {
+    const donationId = session.metadata?.donationId;
+    let donation: { id: string; status: DonationStatus } | null = null;
+
+    if (donationId) {
+      donation = await this.prisma.donation.findUnique({
+        where: { id: donationId },
+        select: { id: true, status: true },
+      });
+    }
+    if (!donation) {
+      // Fallback: match by session id (handles re-deliveries before metadata
+      // was stamped, or edge cases where donationId wasn't set in metadata).
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeCheckoutSessionId: session.id },
+        select: { id: true, status: true },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `checkout.session.completed ${webhookEventId} source=donation but no Donation row found (sessionId=${session.id} donationId=${donationId ?? 'none'}); ignoring`,
+      );
+      return { recorded: false };
+    }
+
+    const stripeCustomerId = this.unwrapId(session.customer);
+    const sessionWithSub = session as CheckoutSessionLike & {
+      subscription?: string | { id: string } | null;
+    };
+
+    if (session.mode === 'payment' && donation.status === DonationStatus.PENDING) {
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: {
+          status: DonationStatus.COMPLETED,
+          stripeCustomerId,
+        },
+      });
+    } else if (
+      session.mode === 'subscription' &&
+      donation.status === DonationStatus.PENDING
+    ) {
+      const stripeSubscriptionId = this.unwrapId(sessionWithSub.subscription);
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: {
+          stripeCustomerId,
+          stripeSubscriptionId,
+          // status stays PENDING; U11 promotes to ACTIVE on invoice.paid
+        },
+      });
+    }
+
+    // Stamp donationId on the PENDING DONATION PaymentEvent created by
+    // handleCheckoutCreated. Without this stamp, one-time donations never
+    // appear in raisedCents/donorCount aggregates because those JOIN
+    // payment_events via donation_id (recurring donations get their own
+    // fresh row in U11, but one-time ones only ever have this row).
+    // Use findFirst because stripeCheckoutSessionId is not yet unique on
+    // PaymentEvent.
+    const existingPe = await this.prisma.paymentEvent.findFirst({
+      where: { stripeCheckoutSessionId: session.id, kind: 'DONATION' },
+    });
+    if (existingPe && existingPe.donationId !== donation.id) {
+      await this.prisma.paymentEvent.update({
+        where: { id: existingPe.id },
+        data: { donationId: donation.id },
+      });
+    }
+
     return { recorded: false };
   }
 
