@@ -17,7 +17,7 @@ export class DonationsOrgResolverMiddleware implements NestMiddleware {
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     // Cancel route: /billing/donation/<id>/cancel
-    const cancelMatch = /\/billing\/donation\/([^/]+)\/cancel/.exec(req.originalUrl);
+    const cancelMatch = /\/billing\/donation\/([^/?#]+)\/cancel(?:[/?#]|$)/.exec(req.originalUrl);
     if (cancelMatch) {
       const donationId = cancelMatch[1];
       const donation = await this.prisma.donation.findUnique({

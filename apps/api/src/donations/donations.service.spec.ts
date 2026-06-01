@@ -350,7 +350,7 @@ describe('DonationsService (cancel)', () => {
 
   it('returns 409 when the donation is not RECURRING', async () => {
     prisma.donation.findUnique.mockResolvedValue({
-      id: 'don_1', userId: 'user_1', mode: 'ONE_TIME', status: 'COMPLETED',
+      id: 'don_1', userId: 'user_1', mode: 'ONE_TIME', status: 'ACTIVE',
       stripeSubscriptionId: null,
     });
     await expect(service.cancel({ userSub: 'user_1', donationId: 'don_1' })).rejects.toBeInstanceOf(ConflictException);
