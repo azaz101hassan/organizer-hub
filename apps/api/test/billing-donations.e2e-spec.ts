@@ -228,3 +228,140 @@ describe('Donation cancel', () => {
     expect(after?.canceledAt).toBeTruthy();
   });
 });
+
+describe('GET /donations/mine', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let fakeStripe: FakeStripeClient;
+  let holder: SubHolder;
+
+  beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
+    holder = makeSubHolder(USER);
+    ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(holder), [
+      { token: StripeClient, useValue: fakeStripe },
+    ]));
+  });
+
+  beforeEach(async () => {
+    await prisma.donation.deleteMany({});
+    await prisma.campaign.deleteMany({});
+    await prisma.coalition.deleteMany({});
+    fakeStripe.reset();
+    holder.value = USER;
+
+    // Seed both the route's resolved org (HOUSE_ORG_ID, via the middleware
+    // GET fallback) and the donations' own organizationId so the
+    // feature-flag guard passes regardless of which row the middleware reads.
+    await prisma.organization.upsert({
+      where: { id: HOUSE_ORG_ID },
+      update: { donationsEnabled: true },
+      create: { id: HOUSE_ORG_ID, name: 'House', slug: 'house', createdBy: 'seed', donationsEnabled: true },
+    });
+    await prisma.organization.upsert({
+      where: { id: 'org_test_donations' },
+      update: { donationsEnabled: true },
+      create: { id: 'org_test_donations', name: 'Test Org', slug: 'org-test-donations', createdBy: 'user-test', donationsEnabled: true },
+    });
+    await prisma.coalition.create({
+      data: coalitionFactory({ id: 'coal_1', organizationId: 'org_test_donations' }),
+    });
+    await prisma.campaign.create({
+      data: campaignFactory({ id: 'camp_1', coalitionId: 'coal_1', organizationId: 'org_test_donations', status: 'ACTIVE' }),
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('returns only the current user\'s donations, newest first', async () => {
+    // Older one-time donation
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'ONE_TIME', cadence: 'ONCE', status: 'COMPLETED',
+      }),
+    });
+    // Newer recurring donation
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+      }),
+    });
+    // Another user's donation — must be filtered out
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: 'user_other', campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+      }),
+    });
+
+    const res = await request(app.getHttpServer()).get('/donations/mine');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body.every((d: { userId: string }) => d.userId === USER)).toBe(true);
+    // Recurring was created after one-time; should appear first.
+    expect(res.body[0].mode).toBe('RECURRING');
+    expect(res.body[1].mode).toBe('ONE_TIME');
+  });
+
+  it('filters by ?mode=RECURRING', async () => {
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'ONE_TIME', cadence: 'ONCE', status: 'COMPLETED',
+      }),
+    });
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+      }),
+    });
+
+    const res = await request(app.getHttpServer()).get('/donations/mine?mode=RECURRING');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].mode).toBe('RECURRING');
+  });
+
+  it('embeds campaign + coalition context for list rendering', async () => {
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'ONE_TIME', cadence: 'ONCE', status: 'COMPLETED',
+      }),
+    });
+
+    const res = await request(app.getHttpServer()).get('/donations/mine');
+    expect(res.status).toBe(200);
+    expect(res.body[0].campaign).toMatchObject({
+      id: 'camp_1',
+      slug: expect.any(String),
+      name: expect.any(String),
+      coalition: { id: 'coal_1', slug: expect.any(String), name: expect.any(String) },
+    });
+  });
+
+  it('400s on invalid mode', async () => {
+    const res = await request(app.getHttpServer()).get('/donations/mine?mode=BOGUS');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns [] when the user has no donations', async () => {
+    const res = await request(app.getHttpServer()).get('/donations/mine');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('404 when donationsEnabled is off on HOUSE_ORG_ID', async () => {
+    await prisma.organization.update({
+      where: { id: HOUSE_ORG_ID },
+      data: { donationsEnabled: false },
+    });
+    const res = await request(app.getHttpServer()).get('/donations/mine');
+    expect(res.status).toBe(404);
+  });
+});

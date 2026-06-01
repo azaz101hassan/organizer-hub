@@ -128,6 +128,23 @@ export class DonationsService {
     return { url: session.url ?? '', donationId: donation.id };
   }
 
+  async listForUser(input: { userSub: string; mode?: 'ONE_TIME' | 'RECURRING' }) {
+    return this.prisma.donation.findMany({
+      where: { userId: input.userSub, ...(input.mode ? { mode: input.mode } : {}) },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        campaign: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            coalition: { select: { id: true, slug: true, name: true } },
+          },
+        },
+      },
+    });
+  }
+
   async cancel(input: { userSub: string; donationId: string }): Promise<{ status: 'canceled' }> {
     const donation = await this.prisma.donation.findUnique({
       where: { id: input.donationId },

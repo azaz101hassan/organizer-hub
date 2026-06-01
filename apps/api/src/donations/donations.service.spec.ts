@@ -302,7 +302,7 @@ describe('DonationsService (cancel)', () => {
   beforeEach(async () => {
     prisma = {
       campaign: { findUnique: jest.fn() },
-      donation: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+      donation: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
       organization: { findUnique: jest.fn() },
     };
     stripe = {
@@ -372,5 +372,85 @@ describe('DonationsService (cancel)', () => {
         data: expect.objectContaining({ status: 'CANCELED', canceledAt: expect.any(Date) }),
       }),
     );
+  });
+});
+
+describe('DonationsService.listForUser', () => {
+  let service: DonationsService;
+  let prisma: { campaign: any; donation: any; organization: any };
+
+  beforeEach(async () => {
+    prisma = {
+      campaign: { findUnique: jest.fn() },
+      donation: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+      organization: { findUnique: jest.fn() },
+    };
+    const stripe = {
+      stripe: {
+        checkout: { sessions: { create: jest.fn() } },
+        subscriptions: { update: jest.fn() },
+      },
+    };
+    const billing = {
+      getOrCreateStripeCustomer: jest.fn(),
+    };
+    const config = { get: jest.fn() } as unknown as ConfigService;
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DonationsService,
+        { provide: PrismaService, useValue: prisma as any },
+        { provide: StripeClient, useValue: stripe as any },
+        { provide: BillingService, useValue: billing as any },
+        { provide: ConfigService, useValue: config },
+      ],
+    }).compile();
+    service = module.get(DonationsService);
+  });
+
+  const EXPECTED_INCLUDE = {
+    campaign: {
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        coalition: { select: { id: true, slug: true, name: true } },
+      },
+    },
+  };
+
+  it('calls findMany with the correct where, orderBy, and include shape', async () => {
+    prisma.donation.findMany.mockResolvedValue([]);
+    await service.listForUser({ userSub: 'user_1', mode: 'ONE_TIME' });
+    expect(prisma.donation.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user_1', mode: 'ONE_TIME' },
+      orderBy: { createdAt: 'desc' },
+      include: EXPECTED_INCLUDE,
+    });
+  });
+
+  it('omits mode from where when mode is not provided', async () => {
+    prisma.donation.findMany.mockResolvedValue([]);
+    await service.listForUser({ userSub: 'user_1' });
+    expect(prisma.donation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user_1' } }),
+    );
+    const call = prisma.donation.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(Object.keys(call.where)).not.toContain('mode');
+  });
+
+  it('includes mode in where when mode is provided', async () => {
+    prisma.donation.findMany.mockResolvedValue([]);
+    await service.listForUser({ userSub: 'user_1', mode: 'RECURRING' });
+    expect(prisma.donation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user_1', mode: 'RECURRING' } }),
+    );
+  });
+
+  it('returns the array from findMany without transformation', async () => {
+    const rows = [{ id: 'don_1', userId: 'user_1', mode: 'ONE_TIME' }];
+    prisma.donation.findMany.mockResolvedValue(rows);
+    const result = await service.listForUser({ userSub: 'user_1' });
+    expect(result).toBe(rows);
   });
 });
