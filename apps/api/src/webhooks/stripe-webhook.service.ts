@@ -595,10 +595,30 @@ export class StripeWebhookService {
       },
       select: { kind: true, donationId: true },
     });
-    const donationId =
+    let donationId =
       originalPe?.kind === PaymentEventKind.DONATION
         ? originalPe.donationId
         : null;
+
+    // Guard: if a DISPUTE row for the same PI has already inherited the
+    // donationId, suppress it here to prevent double-deduction. Both a
+    // dispute and a refund on the same PI should only deduct once.
+    if (donationId) {
+      const existingDisputePe = await this.prisma.paymentEvent.findFirst({
+        where: {
+          stripePaymentIntentId: piId,
+          kind: PaymentEventKind.DISPUTE,
+          donationId: { not: null },
+        },
+        select: { id: true },
+      });
+      if (existingDisputePe) {
+        this.logger.warn(
+          `charge.refunded ${event.id} PI=${piId}: dispute already deducted campaign amount; setting REFUND donationId=null to avoid double-deduction`,
+        );
+        donationId = null;
+      }
+    }
 
     const refunds = charge.refunds?.data ?? [];
     for (const r of refunds) {
@@ -623,21 +643,21 @@ export class StripeWebhookService {
       id: string;
       amount: number;
       currency: string;
-      charge: string;
-      payment_intent?: string | null;
+      charge: string | { id: string };
+      payment_intent?: string | { id: string } | null;
       metadata?: Record<string, string | undefined> | null;
     };
     this.logger.debug(
       `charge.dispute.created ${event.id} dispute=${dispute.id}`,
     );
+    const chargeId = this.unwrapId(dispute.charge) ?? '';
     // Stripe sometimes doesn't propagate metadata onto the dispute — fall
     // back to looking up the charge.
     let userId = dispute.metadata?.userId;
     if (!userId) {
       try {
-        const charge = await this.stripeClient.stripe.charges.retrieve(
-          dispute.charge,
-        );
+        const charge =
+          await this.stripeClient.stripe.charges.retrieve(chargeId);
         userId = (charge.metadata as Record<string, string>)?.userId;
       } catch {
         // fall through to skip
@@ -651,7 +671,7 @@ export class StripeWebhookService {
     }
 
     // Inherit donationId from the original charge PE if it was a DONATION.
-    const piId = dispute.payment_intent ?? null;
+    const piId = this.unwrapId(dispute.payment_intent);
     let donationId: string | null = null;
     if (piId) {
       const originalPe = await this.prisma.paymentEvent.findFirst({
@@ -671,14 +691,34 @@ export class StripeWebhookService {
       if (originalPe?.kind === PaymentEventKind.DONATION) {
         donationId = originalPe.donationId;
       }
+
+      // Guard: if a REFUND row for the same PI has already inherited the
+      // donationId, suppress it here to prevent double-deduction.
+      if (donationId) {
+        const existingRefundPe = await this.prisma.paymentEvent.findFirst({
+          where: {
+            stripePaymentIntentId: piId,
+            kind: PaymentEventKind.REFUND,
+            donationId: { not: null },
+          },
+          select: { id: true },
+        });
+        if (existingRefundPe) {
+          this.logger.warn(
+            `charge.dispute.created ${event.id} PI=${piId}: refund already deducted campaign amount; setting DISPUTE donationId=null to avoid double-deduction`,
+          );
+          donationId = null;
+        }
+      }
     }
 
     await this.paymentEvents.insertDispute(this.prisma, {
       userId,
       amountCents: dispute.amount,
       currency: dispute.currency,
-      stripeChargeId: dispute.charge,
+      stripeChargeId: chargeId,
       stripePaymentIntentId: piId,
+      stripeDisputeId: dispute.id,
       description: `Dispute ${dispute.id}`,
       donationId,
     });

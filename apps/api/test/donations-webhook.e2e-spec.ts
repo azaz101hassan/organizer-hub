@@ -4,6 +4,7 @@ import { StripeClient } from './../src/billing/stripe.client';
 import { StripeWebhookVerifier } from './../src/billing/stripe-webhook.verifier';
 import { StripeWebhookService } from './../src/webhooks/stripe-webhook.service';
 import { MembershipsService } from './../src/memberships/memberships.service';
+import { CampaignsService } from './../src/donations/campaigns.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 import {
@@ -1863,6 +1864,7 @@ describe('charge.refunded — donation arm (e2e)', () => {
   let prisma: PrismaService;
   let fakeStripe: FakeStripeClient;
   let service: StripeWebhookService;
+  let campaignsService: CampaignsService;
 
   beforeAll(async () => {
     fakeStripe = new FakeStripeClient();
@@ -1872,6 +1874,7 @@ describe('charge.refunded — donation arm (e2e)', () => {
       { token: StripeWebhookVerifier, useValue: fakeVerifier },
     ]));
     service = app.get(StripeWebhookService);
+    campaignsService = app.get(CampaignsService);
   });
 
   beforeEach(async () => {
@@ -2046,7 +2049,7 @@ describe('charge.refunded — donation arm (e2e)', () => {
     expect(refundPe.donationId).toBeNull();
   });
 
-  // Case 4: raisedCents nets to zero after donation + refund
+  // Case 4: raisedCents nets to zero after donation + refund (via production query)
   it('Campaign.raisedCents nets to zero after donation refund', async () => {
     const donation = await prisma.donation.create({
       data: donationFactory({
@@ -2094,12 +2097,14 @@ describe('charge.refunded — donation arm (e2e)', () => {
       ),
     );
 
-    // The SUM of all PE rows for this donation must be 0.
-    const agg = await prisma.paymentEvent.aggregate({
-      where: { donationId: donation.id },
-      _sum: { amountCents: true },
-    });
-    expect(agg._sum.amountCents).toBe(0);
+    // Use the production aggregate path (JOIN via donation.campaignId) rather
+    // than a raw donationId filter, so this test exercises the same code path
+    // that Campaign.raisedCents exposes to consumers.
+    const result = await campaignsService.getBySlug(
+      HOUSE_ORG_ID,
+      'test-campaign-wh_1',
+    );
+    expect(result.campaign.raisedCents).toBe(0);
   });
 
   // Case 5: no original PE for the PI — refund still writes, donationId null
@@ -2186,6 +2191,85 @@ describe('charge.refunded — donation arm (e2e)', () => {
       where: { stripeRefundId: 're_idem_1', kind: 'REFUND' },
     });
     expect(count).toBe(1);
+  });
+
+  // Case 6b: refund-after-dispute — REFUND row must not inherit donationId
+  // if a DISPUTE PE already inherited it for the same PI.
+  it('refund-after-dispute: REFUND donationId=null when DISPUTE already deducted the campaign amount', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'COMPLETED',
+        stripeCheckoutSessionId: 'cs_refund_after_dispute_1',
+      }),
+    });
+
+    // Original DONATION PE (+5000).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 5000,
+        currency: 'usd',
+        stripeCheckoutSessionId: 'cs_refund_after_dispute_1',
+        stripePaymentIntentId: 'pi_refund_after_dispute_1',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    // Pre-existing DISPUTE PE that already inherited donationId (-5000).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DISPUTE',
+        status: 'SUCCEEDED',
+        amountCents: -5000,
+        currency: 'usd',
+        stripePaymentIntentId: 'pi_refund_after_dispute_1',
+        stripeDisputeId: 'dp_refund_after_dispute_1',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    // Now a refund also arrives for the same PI.
+    await service.handle(
+      makeStripeEvent(
+        'charge.refunded',
+        {
+          id: 'ch_refund_after_dispute_1',
+          currency: 'usd',
+          customer: 'cus_refund_after_dispute_1',
+          payment_intent: 'pi_refund_after_dispute_1',
+          metadata: { userId: USER },
+          refunds: {
+            data: [{ id: 're_after_dispute_1', amount: 5000 }],
+          },
+        },
+        'evt_refund_after_dispute_1',
+      ),
+    );
+
+    // REFUND row must have donationId=null — dispute already deducted once.
+    const refundPe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeRefundId: 're_after_dispute_1', kind: 'REFUND' },
+    });
+    expect(refundPe.donationId).toBeNull();
+
+    // Campaign.raisedCents = 5000 - 5000 = 0 (only dispute counts).
+    const result = await campaignsService.getBySlug(
+      HOUSE_ORG_ID,
+      'test-campaign-wh_1',
+    );
+    expect(result.campaign.raisedCents).toBe(0);
   });
 
   // Case 7: partial refund — multiple refund objects, all inherit the same donationId
@@ -2396,6 +2480,147 @@ describe('charge.dispute.created — donation arm (e2e)', () => {
       },
     });
     expect(disputePe.donationId).toBeNull();
+  });
+
+  // Case 8b: dispute-after-refund — DISPUTE row must not inherit donationId
+  // if a REFUND PE already inherited it for the same PI.
+  it('dispute-after-refund: DISPUTE donationId=null when REFUND already deducted the campaign amount', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'COMPLETED',
+        stripeCheckoutSessionId: 'cs_dispute_after_refund_1',
+      }),
+    });
+
+    // Original DONATION PE (+5000).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 5000,
+        currency: 'usd',
+        stripeCheckoutSessionId: 'cs_dispute_after_refund_1',
+        stripePaymentIntentId: 'pi_dispute_after_refund_1',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    // Pre-existing REFUND PE that already inherited donationId (-5000).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'REFUND',
+        status: 'SUCCEEDED',
+        amountCents: -5000,
+        currency: 'usd',
+        stripePaymentIntentId: 'pi_dispute_after_refund_1',
+        stripeRefundId: 're_dispute_after_refund_1',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    // Now a dispute also arrives for the same PI.
+    await service.handle(
+      makeStripeEvent(
+        'charge.dispute.created',
+        {
+          id: 'dp_after_refund_1',
+          amount: 5000,
+          currency: 'usd',
+          charge: 'ch_dispute_after_refund_1',
+          payment_intent: 'pi_dispute_after_refund_1',
+          metadata: { userId: USER },
+        },
+        'evt_dispute_after_refund_1',
+      ),
+    );
+
+    // DISPUTE row must have donationId=null — refund already deducted once.
+    const disputePe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeDisputeId: 'dp_after_refund_1', kind: 'DISPUTE' },
+    });
+    expect(disputePe.donationId).toBeNull();
+
+    // Campaign.raisedCents = 5000 - 5000 = 0 (only refund counts).
+    const campaignsService = app.get(CampaignsService);
+    const result = await campaignsService.getBySlug(
+      HOUSE_ORG_ID,
+      'test-campaign-wh_1',
+    );
+    expect(result.campaign.raisedCents).toBe(0);
+  });
+
+  // Case 11: dispute redelivery — same dispute.id dispatched twice
+  it('redelivery: same charge.dispute.created event dispatched twice → exactly 1 DISPUTE PE row; raisedCents deducted once', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'COMPLETED',
+        stripeCheckoutSessionId: 'cs_redeliver_dispute_1',
+      }),
+    });
+
+    // Original DONATION PE (+5000).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 5000,
+        currency: 'usd',
+        stripeCheckoutSessionId: 'cs_redeliver_dispute_1',
+        stripePaymentIntentId: 'pi_redeliver_dispute_1',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    const disputeEvent = makeStripeEvent(
+      'charge.dispute.created',
+      {
+        id: 'dp_redeliver_1',
+        amount: 5000,
+        currency: 'usd',
+        charge: 'ch_redeliver_dispute_1',
+        payment_intent: 'pi_redeliver_dispute_1',
+        metadata: { userId: USER },
+      },
+      'evt_dispute_redeliver_1',
+    );
+
+    // First delivery.
+    await service.handle(disputeEvent);
+    // Second delivery of the same event — must be a no-op.
+    await service.handle(disputeEvent);
+
+    // Exactly one DISPUTE PE for this dispute id.
+    const disputeCount = await prisma.paymentEvent.count({
+      where: { stripeDisputeId: 'dp_redeliver_1', kind: 'DISPUTE' },
+    });
+    expect(disputeCount).toBe(1);
+
+    // Campaign.raisedCents = 5000 - 5000 = 0, not double-deducted.
+    const campaignsService = app.get(CampaignsService);
+    const result = await campaignsService.getBySlug(
+      HOUSE_ORG_ID,
+      'test-campaign-wh_1',
+    );
+    expect(result.campaign.raisedCents).toBe(0);
   });
 
   // Case 10: metadata.userId fallback via charges.retrieve

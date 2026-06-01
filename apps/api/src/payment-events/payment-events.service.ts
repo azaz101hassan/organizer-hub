@@ -58,6 +58,7 @@ export interface DisputeRowInput {
   stripeCustomerId?: string | null;
   stripeChargeId: string;
   stripePaymentIntentId?: string | null;
+  stripeDisputeId: string;
   description?: string;
   donationId?: string | null;
 }
@@ -227,6 +228,7 @@ export class PaymentEventsService {
           stripeCustomerId: input.stripeCustomerId ?? null,
           stripeChargeId: input.stripeChargeId,
           stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+          stripeDisputeId: input.stripeDisputeId,
           donationId: input.donationId ?? null,
           succeededAt: new Date(),
         },
