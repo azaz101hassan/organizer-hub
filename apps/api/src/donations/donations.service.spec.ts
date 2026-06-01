@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DonationsService } from './donations.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -287,6 +287,89 @@ describe('DonationsService (recurring)', () => {
             }),
           }),
         ],
+      }),
+    );
+  });
+});
+
+describe('DonationsService (cancel)', () => {
+  let service: DonationsService;
+  let prisma: { campaign: any; donation: any; organization: any };
+  let stripe: { stripe: any };
+  let billing: { getOrCreateStripeCustomer: jest.Mock };
+  let config: ConfigService;
+
+  beforeEach(async () => {
+    prisma = {
+      campaign: { findUnique: jest.fn() },
+      donation: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+      organization: { findUnique: jest.fn() },
+    };
+    stripe = {
+      stripe: {
+        checkout: {
+          sessions: {
+            create: jest.fn().mockResolvedValue({ id: 'cs_test_3', url: 'https://stripe.test/cs_test_3' }),
+          },
+        },
+        subscriptions: { update: jest.fn().mockResolvedValue({}) },
+      },
+    };
+    billing = {
+      getOrCreateStripeCustomer: jest.fn().mockResolvedValue({ stripeCustomerId: 'cus_test_1' }),
+    };
+    config = { get: jest.fn().mockReturnValue('https://app.test') } as unknown as ConfigService;
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DonationsService,
+        { provide: PrismaService, useValue: prisma as any },
+        { provide: StripeClient, useValue: stripe as any },
+        { provide: BillingService, useValue: billing as any },
+        { provide: ConfigService, useValue: config },
+      ],
+    }).compile();
+    service = module.get(DonationsService);
+  });
+
+  it('returns 404 (NotFoundException) when the donation belongs to another user', async () => {
+    prisma.donation.findUnique.mockResolvedValue({
+      id: 'don_1', userId: 'user_other', mode: 'RECURRING', status: 'ACTIVE',
+      stripeSubscriptionId: 'sub_1',
+    });
+    await expect(service.cancel({ userSub: 'user_1', donationId: 'don_1' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns 409 (ConflictException) when the donation is not ACTIVE', async () => {
+    prisma.donation.findUnique.mockResolvedValue({
+      id: 'don_1', userId: 'user_1', mode: 'RECURRING', status: 'COMPLETED',
+      stripeSubscriptionId: 'sub_1',
+    });
+    await expect(service.cancel({ userSub: 'user_1', donationId: 'don_1' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('returns 409 when the donation is not RECURRING', async () => {
+    prisma.donation.findUnique.mockResolvedValue({
+      id: 'don_1', userId: 'user_1', mode: 'ONE_TIME', status: 'COMPLETED',
+      stripeSubscriptionId: null,
+    });
+    await expect(service.cancel({ userSub: 'user_1', donationId: 'don_1' })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('schedules cancel-at-period-end on Stripe and flips Donation to CANCELED optimistically', async () => {
+    prisma.donation.findUnique.mockResolvedValue({
+      id: 'don_1', userId: 'user_1', mode: 'RECURRING', status: 'ACTIVE',
+      stripeSubscriptionId: 'sub_1',
+    });
+    prisma.donation.update.mockResolvedValue({ id: 'don_1', status: 'CANCELED' });
+
+    const result = await service.cancel({ userSub: 'user_1', donationId: 'don_1' });
+    expect(result).toEqual({ status: 'canceled' });
+    expect((stripe.stripe.subscriptions.update as jest.Mock)).toHaveBeenCalledWith('sub_1', { cancel_at_period_end: true });
+    expect(prisma.donation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'don_1' },
+        data: expect.objectContaining({ status: 'CANCELED', canceledAt: expect.any(Date) }),
       }),
     );
   });

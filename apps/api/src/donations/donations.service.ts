@@ -128,6 +128,35 @@ export class DonationsService {
     return { url: session.url ?? '', donationId: donation.id };
   }
 
+  async cancel(input: { userSub: string; donationId: string }): Promise<{ status: 'canceled' }> {
+    const donation = await this.prisma.donation.findUnique({
+      where: { id: input.donationId },
+    });
+    if (!donation || donation.userId !== input.userSub) {
+      // 404 not 403: do not leak existence of other users' donations.
+      throw new NotFoundException();
+    }
+    if (donation.status !== DonationStatus.ACTIVE) {
+      throw new ConflictException('donation is not active');
+    }
+    if (donation.mode !== DonationMode.RECURRING || !donation.stripeSubscriptionId) {
+      throw new ConflictException('donation is not recurring');
+    }
+
+    // Cancel-at-period-end: the current paid period stays paid, no new invoice
+    // generated. Mirrors BillingService.cancelMembership.
+    await this.stripeClient.stripe.subscriptions.update(donation.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    await this.prisma.donation.update({
+      where: { id: donation.id },
+      data: { status: DonationStatus.CANCELED, canceledAt: new Date() },
+    });
+
+    return { status: 'canceled' };
+  }
+
   private deriveMode(cadence: DonationCadence): DonationMode {
     return this.recurringFor(cadence) === null
       ? DonationMode.ONE_TIME
