@@ -111,4 +111,23 @@ describe("DonatePanel", () => {
       ).toHaveAttribute("aria-pressed", "false");
     }
   });
+
+  it("cadence selector group has an accessible name", () => {
+    render(<DonatePanel {...defaultProps} />);
+    expect(
+      screen.getByRole("group", { name: /donation frequency/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("amount selector group has an accessible name", () => {
+    render(<DonatePanel {...defaultProps} />);
+    expect(
+      screen.getByRole("group", { name: /donation amount/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not emit a campaignSlug hidden input", () => {
+    const { container } = render(<DonatePanel {...defaultProps} />);
+    expect(container.querySelector('input[name="campaignSlug"]')).toBeNull();
+  });
 });

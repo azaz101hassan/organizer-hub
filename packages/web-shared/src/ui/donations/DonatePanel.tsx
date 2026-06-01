@@ -39,7 +39,6 @@ function formatChipLabel(cents: number, currency: string): string {
 
 export function DonatePanel({
   campaignId,
-  campaignSlug,
   defaultCurrency,
   initialCadence = "ONCE",
   initialAmountCents,
@@ -82,7 +81,6 @@ export function DonatePanel({
     <Card padded>
       <form action={action} method="post">
         <input type="hidden" name="campaignId" value={campaignId} />
-        <input type="hidden" name="campaignSlug" value={campaignSlug} />
         <input
           type="hidden"
           name="cadence"
@@ -100,6 +98,7 @@ export function DonatePanel({
           options={CADENCE_OPTIONS}
           value={cadence}
           onChange={setCadence}
+          ariaLabel="Donation frequency"
         />
 
         <div role="group" aria-label="Donation amount">
