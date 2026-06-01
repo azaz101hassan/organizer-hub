@@ -12,8 +12,9 @@ import { HOUSE_ORG_ID } from '../common/house-org';
 //   POST /billing/donation/:id/cancel — resolve via donationId extracted from
 //     the URL path. Route params (req.params) are not populated by Express at
 //     middleware time, so the id is parsed manually from req.originalUrl.
-//   GET  /coalitions and GET /coalitions/:slug — single-tenant public reads;
-//     fall back to the house org so DonationsFeatureFlagGuard can still run.
+//   GET  /coalitions and GET /coalitions/:slug and GET /campaigns/:slug —
+//     single-tenant public reads; fall back to the house org so
+//     DonationsFeatureFlagGuard can still run.
 @Injectable()
 export class DonationsOrgResolverMiddleware implements NestMiddleware {
   constructor(private readonly prisma: PrismaService) {}

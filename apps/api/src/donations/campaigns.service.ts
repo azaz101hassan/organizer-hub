@@ -42,36 +42,42 @@ export class CampaignsService {
       throw new NotFoundException();
     }
 
-    const raised = await this.prisma.paymentEvent.aggregate({
-      _sum: { amountCents: true },
-      where: {
-        donation: { campaignId: campaign.id },
-        status: 'SUCCEEDED',
-      },
-    });
-
-    // Count distinct userId from SUCCEEDED payment events (not donation status).
-    // A recurring donor who later canceled their donation still has SUCCEEDED
-    // PaymentEvents — their contribution is counted.
-    const donorRows = await this.prisma.paymentEvent.groupBy({
-      by: ['userId'],
-      where: {
-        donation: { campaignId: campaign.id },
-        status: 'SUCCEEDED',
-      },
-    });
-    const donorCount = donorRows.length;
-
-    // 30-day momentum signal: only DONATION-kind events (excludes refunds/disputes).
+    // raisedCents/donorCount/recentGiftCount join PaymentEvent → Donation via
+    // donation_id. Today, the webhook write path in payment-events.service.ts does
+    // not populate donation_id on new PaymentEvent rows — Phase E (the donation
+    // webhook arms) is the unit that wires that through. Until Phase E ships,
+    // every campaign reads as 0/0/0; afterward, refunds and disputes net the
+    // total correctly because they inherit donation_id from the original DONATION.
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
-    const recentGiftCount = await this.prisma.paymentEvent.count({
-      where: {
-        donation: { campaignId: campaign.id },
-        status: 'SUCCEEDED',
-        kind: 'DONATION',
-        succeededAt: { gte: thirtyDaysAgo },
-      },
-    });
+    const [raised, donorRows, recentGiftCount] = await Promise.all([
+      this.prisma.paymentEvent.aggregate({
+        _sum: { amountCents: true },
+        where: {
+          donation: { campaignId: campaign.id },
+          status: 'SUCCEEDED',
+        },
+      }),
+      // Count distinct userId from SUCCEEDED payment events (not donation status).
+      // A recurring donor who later canceled their donation still has SUCCEEDED
+      // PaymentEvents — their contribution is counted.
+      this.prisma.paymentEvent.groupBy({
+        by: ['userId'],
+        where: {
+          donation: { campaignId: campaign.id },
+          status: 'SUCCEEDED',
+        },
+      }),
+      // 30-day momentum signal: only DONATION-kind events (excludes refunds/disputes).
+      this.prisma.paymentEvent.count({
+        where: {
+          donation: { campaignId: campaign.id },
+          status: 'SUCCEEDED',
+          kind: 'DONATION',
+          succeededAt: { gte: thirtyDaysAgo },
+        },
+      }),
+    ]);
+    const donorCount = donorRows.length;
 
     return {
       campaign: {
