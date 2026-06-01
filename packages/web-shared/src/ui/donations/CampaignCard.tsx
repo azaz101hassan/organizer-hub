@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card } from "../primitives/Card";
 import { ProgressBar } from "../data/ProgressBar";
+import { formatCurrencyPrefix } from "./currency";
 
 export interface CampaignCardProps {
   slug: string;
@@ -13,14 +14,11 @@ export interface CampaignCardProps {
   currency?: string;
 }
 
-function formatCurrencyPrefix(currency: string): string {
-  if (currency.toLowerCase() === "usd") return "$";
-  return `${currency.toUpperCase()} `;
-}
-
-function daysLeft(deadline: Date | string): number {
+function daysLeft(deadline: Date | string): number | null {
   const d = deadline instanceof Date ? deadline : new Date(deadline);
-  return Math.max(0, Math.ceil((d.getTime() - Date.now()) / 86_400_000));
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.ceil((ms - Date.now()) / 86_400_000));
 }
 
 export function CampaignCard({
@@ -31,18 +29,18 @@ export function CampaignCard({
   raisedCents,
   donorCount,
   deadline,
-  currency = "usd",
+  currency,
 }: CampaignCardProps) {
   const prefix = formatCurrencyPrefix(currency);
-  const raisedDollars = (raisedCents / 100).toLocaleString();
-  const targetDollars = (targetAmountCents / 100).toLocaleString();
+  const safeRaised = Number.isFinite(raisedCents) ? raisedCents : 0;
+  const safeTarget = Number.isFinite(targetAmountCents) ? targetAmountCents : 0;
+  const raisedDollars = (safeRaised / 100).toLocaleString();
+  const targetDollars = (safeTarget / 100).toLocaleString();
   const donorLabel = donorCount === 1 ? "1 donor" : `${donorCount} donors`;
 
-  let deadlinePart: string | null = null;
-  if (deadline !== null) {
-    const days = daysLeft(deadline);
-    deadlinePart = days === 1 ? "1 day left" : `${days} days left`;
-  }
+  const days = deadline !== null ? daysLeft(deadline) : null;
+  const deadlinePart =
+    days === null ? null : days === 1 ? "1 day left" : `${days} days left`;
 
   return (
     <Link href={`/campaigns/${slug}`} className="card-link">
@@ -50,8 +48,8 @@ export function CampaignCard({
         {coverImageUrl && <img src={coverImageUrl} alt="" />}
         <h3>{name}</h3>
         <ProgressBar
-          valueCents={raisedCents}
-          targetCents={targetAmountCents}
+          valueCents={safeRaised}
+          targetCents={safeTarget}
           label={`${name} progress`}
         />
         <p>

@@ -9,17 +9,17 @@ export interface SegmentedProps<T extends string> {
   options: SegmentedOption<T>[];
   value: T;
   onChange: (value: T) => void;
-  ariaLabel?: string;
+  label?: string;
 }
 
 export function Segmented<T extends string>({
   options,
   value,
   onChange,
-  ariaLabel,
+  label,
 }: SegmentedProps<T>) {
   return (
-    <div className="segmented" role="group" aria-label={ariaLabel}>
+    <div className="segmented" role="group" aria-label={label}>
       {options.map((opt) => (
         <button
           key={opt.value}

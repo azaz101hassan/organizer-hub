@@ -30,4 +30,25 @@ describe("ProgressBar", () => {
     expect(bar).toHaveAttribute("aria-valuemin", "0");
     expect(bar).toHaveAttribute("aria-valuemax", "100");
   });
+
+  it("non-finite valueCents (NaN) is coerced to 0%, not NaN%", () => {
+    render(<ProgressBar valueCents={NaN} targetCents={1000} label="t" />);
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "0%" });
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("non-finite targetCents (Infinity) is coerced to 0%, not NaN%", () => {
+    render(
+      <ProgressBar valueCents={1000} targetCents={Infinity} label="t" />,
+    );
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "0%" });
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("non-finite both inputs land at 0% without NaN leaking into aria", () => {
+    render(<ProgressBar valueCents={NaN} targetCents={NaN} label="t" />);
+    const bar = screen.getByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).not.toBe("NaN");
+    expect(bar).toHaveAttribute("aria-valuenow", "0");
+  });
 });

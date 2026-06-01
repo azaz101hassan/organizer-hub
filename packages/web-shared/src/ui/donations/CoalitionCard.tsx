@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card } from "../primitives/Card";
+import { formatCurrencyPrefix } from "./currency";
 
 export interface CoalitionCardProps {
   slug: string;
@@ -11,11 +12,6 @@ export interface CoalitionCardProps {
   currency?: string;
 }
 
-function formatCurrencyPrefix(currency: string): string {
-  if (currency.toLowerCase() === "usd") return "$";
-  return `${currency.toUpperCase()} `;
-}
-
 export function CoalitionCard({
   slug,
   name,
@@ -23,10 +19,11 @@ export function CoalitionCard({
   coverImageUrl,
   childCampaignCount,
   totalRaisedCents,
-  currency = "usd",
+  currency,
 }: CoalitionCardProps) {
   const prefix = formatCurrencyPrefix(currency);
-  const dollars = (totalRaisedCents / 100).toLocaleString();
+  const safeCents = Number.isFinite(totalRaisedCents) ? totalRaisedCents : 0;
+  const dollars = (safeCents / 100).toLocaleString();
   const campaignLabel =
     childCampaignCount === 1 ? "1 campaign" : `${childCampaignCount} campaigns`;
 

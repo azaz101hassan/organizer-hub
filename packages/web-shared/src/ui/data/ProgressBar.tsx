@@ -5,8 +5,11 @@ export interface ProgressBarProps {
 }
 
 export function ProgressBar({ valueCents, targetCents, label }: ProgressBarProps) {
+  const safeValue = Number.isFinite(valueCents) ? valueCents : 0;
+  const safeTarget =
+    Number.isFinite(targetCents) && targetCents > 0 ? targetCents : 0;
   const ratio =
-    targetCents <= 0 ? 0 : Math.min(1, Math.max(0, valueCents / targetCents));
+    safeTarget === 0 ? 0 : Math.min(1, Math.max(0, safeValue / safeTarget));
   const pct = Math.round(ratio * 100);
   return (
     <div
