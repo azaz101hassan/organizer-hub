@@ -223,6 +223,184 @@ describe('Donation webhook arm (e2e)', () => {
     expect(updated.stripeCustomerId).toBe('cus_test_1');
   });
 
+  it('checkout.session.created for a donation session writes a PaymentEvent with donationId already stamped', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'PENDING',
+        stripeCheckoutSessionId: 'cs_test_created_1',
+      }),
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'checkout.session.created',
+        {
+          id: 'cs_test_created_1',
+          mode: 'payment',
+          amount_total: 2500,
+          currency: 'usd',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+          customer: 'cus_test_c1',
+          payment_intent: 'pi_test_c1',
+        },
+        'evt_don_created_1',
+      ),
+    );
+
+    const pe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeCheckoutSessionId: 'cs_test_created_1', kind: 'DONATION' },
+    });
+    expect(pe.donationId).toBe(donation.id);
+  });
+
+  it('race-safe: checkout.session.completed arriving before checkout.session.created still leaves PaymentEvent.donationId set', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'PENDING',
+        stripeCheckoutSessionId: 'cs_test_race_1',
+      }),
+    });
+
+    // completed arrives first — no PaymentEvent row exists yet, so the
+    // PE-stamp branch in handleDonationCheckoutCompleted is a no-op.
+    await service.handle(
+      makeStripeEvent(
+        'checkout.session.completed',
+        {
+          id: 'cs_test_race_1',
+          mode: 'payment',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+          customer: 'cus_test_r1',
+          payment_intent: 'pi_test_r1',
+        },
+        'evt_don_race_completed',
+      ),
+    );
+
+    // No PaymentEvent row yet — the completed handler found nothing to stamp.
+    const peBefore = await prisma.paymentEvent.findFirst({
+      where: { stripeCheckoutSessionId: 'cs_test_race_1', kind: 'DONATION' },
+    });
+    expect(peBefore).toBeNull();
+
+    // created arrives second — must write the row with donationId already set.
+    await service.handle(
+      makeStripeEvent(
+        'checkout.session.created',
+        {
+          id: 'cs_test_race_1',
+          mode: 'payment',
+          amount_total: 2500,
+          currency: 'usd',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+          customer: 'cus_test_r1',
+          payment_intent: 'pi_test_r1',
+        },
+        'evt_don_race_created',
+      ),
+    );
+
+    const pe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeCheckoutSessionId: 'cs_test_race_1', kind: 'DONATION' },
+    });
+    expect(pe.donationId).toBe(donation.id);
+  });
+
+  it('checkout.session.completed redelivered is idempotent', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'ONE_TIME',
+        cadence: 'ONCE',
+        status: 'PENDING',
+        stripeCheckoutSessionId: 'cs_test_idem_1',
+      }),
+    });
+
+    // Simulate pre-existing PENDING PaymentEvent from checkout.session.created.
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'PENDING',
+        amountCents: 2500,
+        currency: 'usd',
+        stripeCheckoutSessionId: 'cs_test_idem_1',
+        stripePaymentIntentId: 'pi_test_idem_1',
+        donationId: donation.id,
+      },
+    });
+
+    const completedEvent = makeStripeEvent(
+      'checkout.session.completed',
+      {
+        id: 'cs_test_idem_1',
+        mode: 'payment',
+        metadata: {
+          source: 'donation',
+          donationId: donation.id,
+          userId: USER,
+        },
+        customer: 'cus_test_idem_1',
+        payment_intent: 'pi_test_idem_1',
+      },
+      'evt_don_idem_1',
+    );
+
+    // First delivery.
+    await service.handle(completedEvent);
+
+    const afterFirst = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(afterFirst.status).toBe('COMPLETED');
+
+    // Second delivery of the identical event — must be a no-op.
+    await service.handle(completedEvent);
+
+    const afterSecond = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(afterSecond.status).toBe('COMPLETED');
+
+    // Exactly one PaymentEvent for this session.
+    const peCount = await prisma.paymentEvent.count({
+      where: { stripeCheckoutSessionId: 'cs_test_idem_1', kind: 'DONATION' },
+    });
+    expect(peCount).toBe(1);
+
+    // donationId is still set.
+    const pe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeCheckoutSessionId: 'cs_test_idem_1', kind: 'DONATION' },
+    });
+    expect(pe.donationId).toBe(donation.id);
+  });
+
   it('missing Donation row: warn + no-op (no exception, no rows created)', async () => {
     const initialDonationCount = await prisma.donation.count();
     const initialPeCount = await prisma.paymentEvent.count();

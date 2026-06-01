@@ -483,6 +483,7 @@ export class StripeWebhookService {
       stripePaymentIntentId: this.unwrapId(session.payment_intent),
       stripeCheckoutSessionId: session.id,
       ticketRequestId: session.metadata?.ticketRequestId ?? null,
+      donationId: kind === PaymentEventKind.DONATION ? (session.metadata?.donationId ?? null) : null,
     });
     return { recorded: false };
   }

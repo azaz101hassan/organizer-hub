@@ -17,6 +17,7 @@ export interface PendingChargeInput {
   stripeCheckoutSessionId: string;
   description?: string;
   ticketRequestId?: string | null;
+  donationId?: string | null;
 }
 
 export interface TerminalChargeUpdate {
@@ -91,6 +92,7 @@ export class PaymentEventsService {
           stripePaymentIntentId: input.stripePaymentIntentId ?? null,
           stripeCheckoutSessionId: input.stripeCheckoutSessionId,
           ticketRequestId: input.ticketRequestId ?? null,
+          donationId: input.donationId ?? null,
         },
       });
     } catch (err) {
