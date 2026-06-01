@@ -141,6 +141,11 @@ interface RequestOptionsP {
   idempotencyKey?: string;
 }
 
+export interface FakeStripeCharge {
+  id: string;
+  metadata: Record<string, string>;
+}
+
 export class FakeStripeClient {
   readonly calls: FakeStripeCall[] = [];
   readonly customers = new Map<
@@ -155,6 +160,7 @@ export class FakeStripeClient {
   // the same session (mirrors Stripe; the two-admin approve race shares one).
   private readonly idempotentSessions = new Map<string, string>();
   readonly invoices = new Map<string, FakeStripeInvoice>();
+  readonly charges = new Map<string, FakeStripeCharge>();
   readonly refunds: Array<{
     payment_intent: string;
     idempotencyKey?: string;
@@ -262,11 +268,11 @@ export class FakeStripeClient {
         },
         retrieve: async (
           id: string,
-        ): Promise<FakeStripeSubscription & { metadata: Record<string, string> }> => {
+        ): Promise<
+          FakeStripeSubscription & { metadata: Record<string, string> }
+        > => {
           this.calls.push({ method: 'subscriptions.retrieve', args: [id] });
-          const sub = this.subscriptions.get(id) as
-            | (FakeStripeSubscription & { metadata?: Record<string, string> })
-            | undefined;
+          const sub = this.subscriptions.get(id);
           if (!sub) throw new Error(`No such subscription: ${id}`);
           return { ...sub, metadata: sub.metadata ?? {} };
         },
@@ -376,10 +382,21 @@ export class FakeStripeClient {
           return { id };
         },
       },
+      charges: {
+        retrieve: async (id: string): Promise<FakeStripeCharge> => {
+          this.calls.push({ method: 'charges.retrieve', args: [id] });
+          const charge = this.charges.get(id);
+          if (!charge) throw new Error(`No such charge: ${id}`);
+          return charge;
+        },
+      },
     };
   }
 
   // Test helpers — populate state without exercising the SDK surface.
+  seedCharge(c: FakeStripeCharge): void {
+    this.charges.set(c.id, c);
+  }
   seedCheckoutSession(
     s: Pick<FakeCheckoutSession, 'id'> & Partial<FakeCheckoutSession>,
   ): FakeCheckoutSession {
@@ -416,6 +433,7 @@ export class FakeStripeClient {
     this.checkoutSessions.clear();
     this.idempotentSessions.clear();
     this.invoices.clear();
+    this.charges.clear();
     this.refunds.length = 0;
     this.nextId = 1;
   }

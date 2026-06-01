@@ -579,6 +579,27 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
+    // Inherit donationId from the original charge PE if it was a DONATION.
+    // Look up once outside the refund loop — all partial refunds share the same PI.
+    const originalPe = await this.prisma.paymentEvent.findFirst({
+      where: {
+        stripePaymentIntentId: piId,
+        kind: {
+          in: [
+            PaymentEventKind.TICKET,
+            PaymentEventKind.MEMBERSHIP,
+            PaymentEventKind.DONATION,
+          ],
+        },
+        status: PaymentEventStatus.SUCCEEDED,
+      },
+      select: { kind: true, donationId: true },
+    });
+    const donationId =
+      originalPe?.kind === PaymentEventKind.DONATION
+        ? originalPe.donationId
+        : null;
+
     const refunds = charge.refunds?.data ?? [];
     for (const r of refunds) {
       await this.paymentEvents.insertRefund(this.prisma, {
@@ -589,6 +610,7 @@ export class StripeWebhookService {
         stripePaymentIntentId: piId,
         stripeRefundId: r.id,
         stripeChargeId: charge.id,
+        donationId,
       });
     }
     return { recorded: false };
@@ -627,13 +649,38 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
+
+    // Inherit donationId from the original charge PE if it was a DONATION.
+    const piId = dispute.payment_intent ?? null;
+    let donationId: string | null = null;
+    if (piId) {
+      const originalPe = await this.prisma.paymentEvent.findFirst({
+        where: {
+          stripePaymentIntentId: piId,
+          kind: {
+            in: [
+              PaymentEventKind.TICKET,
+              PaymentEventKind.MEMBERSHIP,
+              PaymentEventKind.DONATION,
+            ],
+          },
+          status: PaymentEventStatus.SUCCEEDED,
+        },
+        select: { kind: true, donationId: true },
+      });
+      if (originalPe?.kind === PaymentEventKind.DONATION) {
+        donationId = originalPe.donationId;
+      }
+    }
+
     await this.paymentEvents.insertDispute(this.prisma, {
       userId,
       amountCents: dispute.amount,
       currency: dispute.currency,
       stripeChargeId: dispute.charge,
-      stripePaymentIntentId: dispute.payment_intent ?? null,
+      stripePaymentIntentId: piId,
       description: `Dispute ${dispute.id}`,
+      donationId,
     });
     return { recorded: false };
   }

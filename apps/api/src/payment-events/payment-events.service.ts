@@ -48,6 +48,7 @@ export interface RefundRowInput {
   stripeRefundId: string;
   stripeChargeId?: string | null;
   description?: string;
+  donationId?: string | null;
 }
 
 export interface DisputeRowInput {
@@ -58,6 +59,7 @@ export interface DisputeRowInput {
   stripeChargeId: string;
   stripePaymentIntentId?: string | null;
   description?: string;
+  donationId?: string | null;
 }
 
 // All writes happen inside the same transaction as the webhook handler's
@@ -114,7 +116,13 @@ export class PaymentEventsService {
     const row = await tx.paymentEvent.findFirst({
       where: {
         stripePaymentIntentId,
-        kind: { in: [PaymentEventKind.TICKET, PaymentEventKind.MEMBERSHIP, PaymentEventKind.DONATION] },
+        kind: {
+          in: [
+            PaymentEventKind.TICKET,
+            PaymentEventKind.MEMBERSHIP,
+            PaymentEventKind.DONATION,
+          ],
+        },
       },
       select: { id: true },
     });
@@ -187,6 +195,7 @@ export class PaymentEventsService {
           stripeRefundId: input.stripeRefundId,
           stripeChargeId: input.stripeChargeId ?? null,
           refundsPaymentIntentId: input.stripePaymentIntentId,
+          donationId: input.donationId ?? null,
           succeededAt: new Date(),
         },
       });
@@ -218,6 +227,7 @@ export class PaymentEventsService {
           stripeCustomerId: input.stripeCustomerId ?? null,
           stripeChargeId: input.stripeChargeId,
           stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+          donationId: input.donationId ?? null,
           succeededAt: new Date(),
         },
       });
