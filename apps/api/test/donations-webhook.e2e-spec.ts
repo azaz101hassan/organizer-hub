@@ -3,13 +3,18 @@ import { App } from 'supertest/types';
 import { StripeClient } from './../src/billing/stripe.client';
 import { StripeWebhookVerifier } from './../src/billing/stripe-webhook.verifier';
 import { StripeWebhookService } from './../src/webhooks/stripe-webhook.service';
+import { MembershipsService } from './../src/memberships/memberships.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { bootTestApp, DenyAllGuard } from './helpers/boot-test-app';
 import {
   FakeStripeClient,
   FakeStripeWebhookVerifier,
 } from './helpers/fake-stripe';
-import { coalitionFactory, campaignFactory, donationFactory } from './factories';
+import {
+  coalitionFactory,
+  campaignFactory,
+  donationFactory,
+} from './factories';
 import { HOUSE_ORG_ID } from '../src/common/house-org';
 import type { Stripe } from './../src/billing/stripe-types';
 
@@ -72,7 +77,10 @@ describe('Donation webhook arm (e2e)', () => {
     });
 
     await prisma.coalition.create({
-      data: coalitionFactory({ id: COALITION_ID, organizationId: HOUSE_ORG_ID }),
+      data: coalitionFactory({
+        id: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+      }),
     });
     await prisma.campaign.create({
       data: campaignFactory({
@@ -467,7 +475,10 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
     });
 
     await prisma.coalition.create({
-      data: coalitionFactory({ id: COALITION_ID, organizationId: HOUSE_ORG_ID }),
+      data: coalitionFactory({
+        id: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+      }),
     });
     await prisma.campaign.create({
       data: campaignFactory({
@@ -524,7 +535,11 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
           payment_intent: 'pi_inv_test_1',
           subscription: 'sub_inv_test_1',
           billing_reason: 'subscription_create',
-          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
         },
         'evt_inv_first_1',
       ),
@@ -584,7 +599,11 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
           charge: 'ch_inv_test_2',
           subscription: 'sub_inv_test_2',
           billing_reason: 'subscription_cycle',
-          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
         },
         'evt_inv_renewal_1',
       ),
@@ -721,7 +740,11 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
           payment_intent: 'pi_inv_test_5',
           subscription: 'sub_inv_test_5',
           billing_reason: 'subscription_cycle',
-          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
         },
         'evt_inv_early_renewal_1',
       ),
@@ -816,7 +839,9 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
       }),
     });
 
-    const retrieveCallsBefore = fakeStripe.callsFor('subscriptions.retrieve').length;
+    const retrieveCallsBefore = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
 
     await service.handle(
       makeStripeEvent(
@@ -831,7 +856,11 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
           billing_reason: 'subscription_cycle',
           metadata: {},
           subscription_details: {
-            metadata: { source: 'donation', donationId: donation.id, userId: USER },
+            metadata: {
+              source: 'donation',
+              donationId: donation.id,
+              userId: USER,
+            },
           },
         },
         'evt_inv_details_1',
@@ -839,7 +868,9 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
     );
 
     // No retrieve should have been issued — metadata came from subscription_details.
-    const retrieveCallsAfter = fakeStripe.callsFor('subscriptions.retrieve').length;
+    const retrieveCallsAfter = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
     expect(retrieveCallsAfter).toBe(retrieveCallsBefore);
 
     const updated = await prisma.donation.findUniqueOrThrow({
@@ -885,7 +916,11 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
             payment_intent: 'pi_inv_canceled_1',
             subscription: 'sub_inv_canceled_1',
             billing_reason: 'subscription_cycle',
-            metadata: { source: 'donation', donationId: donation.id, userId: USER },
+            metadata: {
+              source: 'donation',
+              donationId: donation.id,
+              userId: USER,
+            },
           },
           'evt_inv_canceled_1',
         ),
@@ -900,5 +935,584 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
 
     // No new PaymentEvent row was inserted.
     expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+  });
+});
+
+describe('customer.subscription.deleted — donation arm (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let fakeStripe: FakeStripeClient;
+  let service: StripeWebhookService;
+  let memberships: MembershipsService;
+
+  beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
+    const fakeVerifier = new FakeStripeWebhookVerifier();
+    ({ app, prisma } = await bootTestApp(DenyAllGuard, [
+      { token: StripeClient, useValue: fakeStripe },
+      { token: StripeWebhookVerifier, useValue: fakeVerifier },
+    ]));
+    service = app.get(StripeWebhookService);
+    memberships = app.get(MembershipsService);
+  });
+
+  beforeEach(async () => {
+    fakeStripe.reset();
+    await prisma.paymentEvent.deleteMany({});
+    await prisma.donation.deleteMany({});
+    await prisma.campaign.deleteMany({});
+    await prisma.coalition.deleteMany({});
+
+    await prisma.organization.upsert({
+      where: { id: HOUSE_ORG_ID },
+      update: { donationsEnabled: true },
+      create: {
+        id: HOUSE_ORG_ID,
+        name: 'House',
+        slug: 'house',
+        createdBy: 'seed',
+        donationsEnabled: true,
+      },
+    });
+
+    await prisma.coalition.create({
+      data: coalitionFactory({
+        id: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+      }),
+    });
+    await prisma.campaign.create({
+      data: campaignFactory({
+        id: CAMPAIGN_ID,
+        coalitionId: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+        status: 'ACTIVE',
+      }),
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('ACTIVE donation → flips to CANCELED and stamps canceledAt', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_del_test_1',
+        stripeCustomerId: 'cus_del_test_1',
+      }),
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.deleted',
+        {
+          id: 'sub_del_test_1',
+          customer: 'cus_del_test_1',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+        },
+        'evt_del_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('CANCELED');
+    expect(updated.canceledAt).not.toBeNull();
+  });
+
+  it('idempotency: already-CANCELED donation → status stays CANCELED, canceledAt is NOT updated', async () => {
+    const originalCanceledAt = new Date(Date.now() - 60_000);
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'CANCELED',
+        stripeSubscriptionId: 'sub_del_idem_1',
+        stripeCustomerId: 'cus_del_idem_1',
+        canceledAt: originalCanceledAt,
+      }),
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.deleted',
+        {
+          id: 'sub_del_idem_1',
+          customer: 'cus_del_idem_1',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+        },
+        'evt_del_idem_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('CANCELED');
+    // canceledAt must still be the original stamp, not a fresh one.
+    expect(updated.canceledAt!.getTime()).toBeLessThan(Date.now() - 30_000);
+  });
+
+  it('membership regression net: non-donation subscription.deleted still calls syncStripeData and leaves seeded ACTIVE donation untouched', async () => {
+    // Seed a donation that must not be touched.
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_del_membership_1',
+        stripeCustomerId: 'cus_del_membership_1',
+      }),
+    });
+
+    // Seed a subscription in FakeStripe so syncStripeData can list subs for
+    // the customer and not throw.
+    fakeStripe.seedSubscription({
+      id: 'sub_del_membership_other',
+      customer: 'cus_del_membership_other',
+      status: 'canceled',
+      cancel_at_period_end: false,
+      metadata: {},
+      items: { data: [] },
+    });
+
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+
+    // No source=donation metadata → should route to membership path.
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.deleted',
+        {
+          id: 'sub_del_membership_other',
+          customer: 'cus_del_membership_other',
+          metadata: {},
+        },
+        'evt_del_membership_1',
+      ),
+    );
+
+    // syncStripeData must have been called.
+    expect(syncSpy).toHaveBeenCalledWith('cus_del_membership_other');
+
+    // The seeded donation remains untouched.
+    const untouched = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(untouched.status).toBe('ACTIVE');
+
+    syncSpy.mockRestore();
+  });
+
+  it('missing Donation row → warn + no-op (no exception, no rows created)', async () => {
+    const initialDonationCount = await prisma.donation.count();
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'customer.subscription.deleted',
+          {
+            id: 'sub_del_missing_1',
+            customer: 'cus_del_missing_1',
+            metadata: {
+              source: 'donation',
+              donationId: 'don_nonexistent_xyz',
+              userId: USER,
+            },
+          },
+          'evt_del_missing_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    expect(await prisma.donation.count()).toBe(initialDonationCount);
+  });
+
+  it('donationId in metadata is empty → falls back to subscription-id lookup and cancels successfully', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_del_fallback_1',
+        stripeCustomerId: 'cus_del_fallback_1',
+      }),
+    });
+
+    // donationId is absent from metadata — must fall back to stripeSubscriptionId lookup.
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.deleted',
+        {
+          id: 'sub_del_fallback_1',
+          customer: 'cus_del_fallback_1',
+          metadata: { source: 'donation', userId: USER },
+        },
+        'evt_del_fallback_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('CANCELED');
+    expect(updated.canceledAt).not.toBeNull();
+  });
+});
+
+describe('invoice.payment_failed — donation arm (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let fakeStripe: FakeStripeClient;
+  let service: StripeWebhookService;
+  let memberships: MembershipsService;
+
+  beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
+    const fakeVerifier = new FakeStripeWebhookVerifier();
+    ({ app, prisma } = await bootTestApp(DenyAllGuard, [
+      { token: StripeClient, useValue: fakeStripe },
+      { token: StripeWebhookVerifier, useValue: fakeVerifier },
+    ]));
+    service = app.get(StripeWebhookService);
+    memberships = app.get(MembershipsService);
+  });
+
+  beforeEach(async () => {
+    fakeStripe.reset();
+    await prisma.paymentEvent.deleteMany({});
+    await prisma.donation.deleteMany({});
+    await prisma.campaign.deleteMany({});
+    await prisma.coalition.deleteMany({});
+
+    await prisma.organization.upsert({
+      where: { id: HOUSE_ORG_ID },
+      update: { donationsEnabled: true },
+      create: {
+        id: HOUSE_ORG_ID,
+        name: 'House',
+        slug: 'house',
+        createdBy: 'seed',
+        donationsEnabled: true,
+      },
+    });
+
+    await prisma.coalition.create({
+      data: coalitionFactory({
+        id: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+      }),
+    });
+    await prisma.campaign.create({
+      data: campaignFactory({
+        id: CAMPAIGN_ID,
+        coalitionId: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+        status: 'ACTIVE',
+      }),
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('ACTIVE donation → FAILED kind=DONATION PE written; Donation.status remains ACTIVE', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_fail_test_1',
+        stripeCustomerId: 'cus_fail_test_1',
+      }),
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_test_1',
+          amount_due: 2500,
+          currency: 'usd',
+          customer: 'cus_fail_test_1',
+          payment_intent: 'pi_fail_test_1',
+          subscription: 'sub_fail_test_1',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+          last_finalization_error: { message: 'Your card was declined.' },
+        },
+        'evt_fail_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE');
+
+    const pe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeInvoiceId: 'in_fail_test_1', kind: 'DONATION' },
+    });
+    expect(pe.status).toBe('FAILED');
+    expect(pe.donationId).toBe(donation.id);
+    expect(pe.failureReason).toBe('Your card was declined.');
+    expect(pe.organizationId).toBe(HOUSE_ORG_ID);
+  });
+
+  it('idempotency: redelivery of the same failed invoice → exactly one FAILED PE row', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_fail_idem_1',
+        stripeCustomerId: 'cus_fail_idem_1',
+      }),
+    });
+
+    const failEvent = makeStripeEvent(
+      'invoice.payment_failed',
+      {
+        id: 'in_fail_idem_1',
+        amount_due: 2500,
+        currency: 'usd',
+        customer: 'cus_fail_idem_1',
+        payment_intent: 'pi_fail_idem_1',
+        subscription: 'sub_fail_idem_1',
+        metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      },
+      'evt_fail_idem_1',
+    );
+
+    // First delivery.
+    await service.handle(failEvent);
+    // Second delivery — must be a no-op.
+    await service.handle(failEvent);
+
+    const peCount = await prisma.paymentEvent.count({
+      where: { stripeInvoiceId: 'in_fail_idem_1', kind: 'DONATION' },
+    });
+    expect(peCount).toBe(1);
+  });
+
+  it('retrieve-fallback: inv.metadata empty and subscription_details absent → retrieves sub and writes FAILED PE', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_fail_retrieve_1',
+        stripeCustomerId: 'cus_fail_retrieve_1',
+      }),
+    });
+
+    fakeStripe.seedSubscription({
+      id: 'sub_fail_retrieve_1',
+      customer: 'cus_fail_retrieve_1',
+      status: 'past_due',
+      cancel_at_period_end: false,
+      metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      items: { data: [] },
+    });
+
+    const retrieveCallsBefore = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_retrieve_1',
+          amount_due: 2500,
+          currency: 'usd',
+          customer: 'cus_fail_retrieve_1',
+          payment_intent: 'pi_fail_retrieve_1',
+          subscription: 'sub_fail_retrieve_1',
+          metadata: {},
+          // subscription_details intentionally absent
+        },
+        'evt_fail_retrieve_1',
+      ),
+    );
+
+    const retrieveCallsAfter = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
+    expect(retrieveCallsAfter).toBe(retrieveCallsBefore + 1);
+
+    const pe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_fail_retrieve_1', kind: 'DONATION' },
+    });
+    expect(pe).not.toBeNull();
+    expect(pe!.status).toBe('FAILED');
+    expect(pe!.donationId).toBe(donation.id);
+  });
+
+  it('subscription_details path: metadata on subscription_details.metadata only → subscriptions.retrieve NOT called', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_fail_details_1',
+        stripeCustomerId: 'cus_fail_details_1',
+      }),
+    });
+
+    const retrieveCallsBefore = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_details_1',
+          amount_due: 2500,
+          currency: 'usd',
+          customer: 'cus_fail_details_1',
+          payment_intent: 'pi_fail_details_1',
+          subscription: 'sub_fail_details_1',
+          metadata: {},
+          subscription_details: {
+            metadata: {
+              source: 'donation',
+              donationId: donation.id,
+              userId: USER,
+            },
+          },
+        },
+        'evt_fail_details_1',
+      ),
+    );
+
+    const retrieveCallsAfter = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
+    expect(retrieveCallsAfter).toBe(retrieveCallsBefore);
+
+    const pe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_fail_details_1', kind: 'DONATION' },
+    });
+    expect(pe).not.toBeNull();
+    expect(pe!.status).toBe('FAILED');
+  });
+
+  it('CANCELED guard: failed invoice replay against CANCELED donation → no PE inserted, no exception', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'CANCELED',
+        stripeSubscriptionId: 'sub_fail_canceled_1',
+        stripeCustomerId: 'cus_fail_canceled_1',
+      }),
+    });
+
+    const initialPeCount = await prisma.paymentEvent.count();
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'invoice.payment_failed',
+          {
+            id: 'in_fail_canceled_1',
+            amount_due: 2500,
+            currency: 'usd',
+            customer: 'cus_fail_canceled_1',
+            payment_intent: 'pi_fail_canceled_1',
+            subscription: 'sub_fail_canceled_1',
+            metadata: {
+              source: 'donation',
+              donationId: donation.id,
+              userId: USER,
+            },
+          },
+          'evt_fail_canceled_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+  });
+
+  it('membership regression net: invoice.payment_failed with no donation metadata → calls syncStripeData, writes no PE', async () => {
+    // Seed a subscription in FakeStripe so syncStripeData can list subs.
+    fakeStripe.seedSubscription({
+      id: 'sub_fail_membership_1',
+      customer: 'cus_fail_membership_1',
+      status: 'past_due',
+      cancel_at_period_end: false,
+      metadata: {},
+      items: { data: [] },
+    });
+
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+    const initialPeCount = await prisma.paymentEvent.count();
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_membership_1',
+          amount_due: 4000,
+          currency: 'usd',
+          customer: 'cus_fail_membership_1',
+          subscription: 'sub_fail_membership_1',
+          // No donation metadata — plain membership invoice.
+          metadata: {},
+        },
+        'evt_fail_membership_1',
+      ),
+    );
+
+    expect(syncSpy).toHaveBeenCalledWith('cus_fail_membership_1');
+    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+
+    syncSpy.mockRestore();
   });
 });
