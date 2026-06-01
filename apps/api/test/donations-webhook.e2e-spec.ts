@@ -936,6 +936,80 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
     // No new PaymentEvent row was inserted.
     expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
   });
+
+  // FAILED → SUCCEEDED upgrade: a prior dunning attempt wrote a FAILED PE for
+  // the same invoice; the SUCCEEDED arm must upgrade it in place rather than
+  // returning early, so Campaign.raisedCents reflects the actual charge.
+  it('prior FAILED PE for same invoice is upgraded in place to SUCCEEDED on successful retry', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_inv_upgrade_1',
+        stripeCustomerId: 'cus_inv_upgrade_1',
+      }),
+    });
+
+    // Seed a FAILED PE for the same invoice — the shape U12's handleDonationInvoiceFailed writes.
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'FAILED',
+        amountCents: 2500,
+        currency: 'usd',
+        donationId: donation.id,
+        stripeInvoiceId: 'in_upgrade_1',
+        stripePaymentIntentId: 'pi_inv_upgrade_old',
+        stripeCustomerId: 'cus_inv_upgrade_1',
+        failureReason: 'Your card was declined.',
+      },
+    });
+
+    // Stripe retries and succeeds — invoice.payment_succeeded arrives for the
+    // same invoice with a new payment_intent.
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_upgrade_1',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_upgrade_1',
+          payment_intent: 'pi_inv_upgrade_new',
+          charge: 'ch_inv_upgrade_1',
+          subscription: 'sub_inv_upgrade_1',
+          billing_reason: 'subscription_cycle',
+          metadata: {
+            source: 'donation',
+            donationId: donation.id,
+            userId: USER,
+          },
+        },
+        'evt_inv_upgrade_1',
+      ),
+    );
+
+    // Exactly 1 PE row for this invoice — no duplicate was written.
+    const peCount = await prisma.paymentEvent.count({
+      where: { stripeInvoiceId: 'in_upgrade_1', kind: 'DONATION' },
+    });
+    expect(peCount).toBe(1);
+
+    const pe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeInvoiceId: 'in_upgrade_1', kind: 'DONATION' },
+    });
+    expect(pe.status).toBe('SUCCEEDED');
+    expect(pe.succeededAt).not.toBeNull();
+    expect(pe.amountCents).toBe(2500);
+    expect(pe.failureReason).toBeNull();
+    expect(pe.stripePaymentIntentId).toBe('pi_inv_upgrade_new');
+  });
 });
 
 describe('customer.subscription.deleted — donation arm (e2e)', () => {
@@ -1182,6 +1256,48 @@ describe('customer.subscription.deleted — donation arm (e2e)', () => {
     expect(updated.status).toBe('CANCELED');
     expect(updated.canceledAt).not.toBeNull();
   });
+
+  // Finding 6: metadata.donationId points to a donation with a DIFFERENT
+  // stripeSubscriptionId — the wrong subscription was canceled; D1 must NOT
+  // be canceled.
+  it('meta.donationId mismatch: donation stripeSubscriptionId differs from webhook sub.id → D1 NOT canceled', async () => {
+    // D1 belongs to sub_A.
+    const donationA = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_A_del_mismatch',
+        stripeCustomerId: 'cus_del_mismatch_1',
+      }),
+    });
+
+    // sub_B is deleted; metadata.donationId wrongly points to donationA (sub_A).
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.deleted',
+        {
+          id: 'sub_B_del_mismatch',
+          customer: 'cus_del_mismatch_1',
+          metadata: {
+            source: 'donation',
+            donationId: donationA.id,
+            userId: USER,
+          },
+        },
+        'evt_del_mismatch_1',
+      ),
+    );
+
+    // donationA must NOT be canceled — it belongs to sub_A, not sub_B.
+    const afterHandle = await prisma.donation.findUniqueOrThrow({
+      where: { id: donationA.id },
+    });
+    expect(afterHandle.status).toBe('ACTIVE');
+  });
 });
 
 describe('invoice.payment_failed — donation arm (e2e)', () => {
@@ -1329,7 +1445,11 @@ describe('invoice.payment_failed — donation arm (e2e)', () => {
     expect(peCount).toBe(1);
   });
 
-  it('retrieve-fallback: inv.metadata empty and subscription_details absent → retrieves sub and writes FAILED PE', async () => {
+  // PI=null concurrent re-delivery: the (stripe_payment_intent_id, kind)
+  // partial unique does NOT fire on (NULL, 'DONATION') under Postgres
+  // null semantics. The new (stripe_invoice_id, kind)=DONATION partial unique
+  // must prevent a double row from being written.
+  it('payment_intent:null concurrent redelivery → exactly 1 FAILED PE (invoice-level unique guards the race)', async () => {
     const donation = await prisma.donation.create({
       data: donationFactory({
         userId: USER,
@@ -1338,23 +1458,54 @@ describe('invoice.payment_failed — donation arm (e2e)', () => {
         mode: 'RECURRING',
         cadence: 'MONTHLY',
         status: 'ACTIVE',
-        stripeSubscriptionId: 'sub_fail_retrieve_1',
-        stripeCustomerId: 'cus_fail_retrieve_1',
+        stripeSubscriptionId: 'sub_fail_nullpi_1',
+        stripeCustomerId: 'cus_fail_nullpi_1',
       }),
     });
 
+    const failEvent = makeStripeEvent(
+      'invoice.payment_failed',
+      {
+        id: 'in_fail_nullpi_1',
+        amount_due: 2500,
+        currency: 'usd',
+        customer: 'cus_fail_nullpi_1',
+        payment_intent: null,
+        subscription: 'sub_fail_nullpi_1',
+        metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      },
+      'evt_fail_nullpi_1',
+    );
+
+    // Simulate two concurrent deliveries arriving simultaneously.
+    await Promise.all([service.handle(failEvent), service.handle(failEvent)]);
+
+    const peCount = await prisma.paymentEvent.count({
+      where: { stripeInvoiceId: 'in_fail_nullpi_1', kind: 'DONATION' },
+    });
+    expect(peCount).toBe(1);
+  });
+
+  // The FAILED path skips subscriptions.retrieve even when metadata is empty
+  // (unlike the SUCCEEDED path). The membership failed arm only needs
+  // inv.customer; routing through resolveInvoiceSubMetadata would fire a
+  // retrieve on every dunning retry for no benefit. An invoice without any
+  // inline source hint is treated as a membership invoice.
+  it('empty metadata, no subscription_details → routes to membership path; no retrieve, no FAILED PE', async () => {
     fakeStripe.seedSubscription({
       id: 'sub_fail_retrieve_1',
       customer: 'cus_fail_retrieve_1',
       status: 'past_due',
       cancel_at_period_end: false,
-      metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      metadata: {},
       items: { data: [] },
     });
 
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
     const retrieveCallsBefore = fakeStripe.callsFor(
       'subscriptions.retrieve',
     ).length;
+    const initialPeCount = await prisma.paymentEvent.count();
 
     await service.handle(
       makeStripeEvent(
@@ -1373,17 +1524,19 @@ describe('invoice.payment_failed — donation arm (e2e)', () => {
       ),
     );
 
+    // No retrieve was issued for the membership path.
     const retrieveCallsAfter = fakeStripe.callsFor(
       'subscriptions.retrieve',
     ).length;
-    expect(retrieveCallsAfter).toBe(retrieveCallsBefore + 1);
+    expect(retrieveCallsAfter).toBe(retrieveCallsBefore);
 
-    const pe = await prisma.paymentEvent.findFirst({
-      where: { stripeInvoiceId: 'in_fail_retrieve_1', kind: 'DONATION' },
-    });
-    expect(pe).not.toBeNull();
-    expect(pe!.status).toBe('FAILED');
-    expect(pe!.donationId).toBe(donation.id);
+    // syncStripeData was called with the invoice customer.
+    expect(syncSpy).toHaveBeenCalledWith('cus_fail_retrieve_1');
+
+    // No new DONATION PaymentEvent was written.
+    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+
+    syncSpy.mockRestore();
   });
 
   it('subscription_details path: metadata on subscription_details.metadata only → subscriptions.retrieve NOT called', async () => {
@@ -1513,6 +1666,194 @@ describe('invoice.payment_failed — donation arm (e2e)', () => {
     expect(syncSpy).toHaveBeenCalledWith('cus_fail_membership_1');
     expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
 
+    syncSpy.mockRestore();
+  });
+
+  // Finding 4: membership failed path must not issue subscriptions.retrieve.
+  it('membership invoice.payment_failed → subscriptions.retrieve NOT called; syncStripeData IS called', async () => {
+    fakeStripe.seedSubscription({
+      id: 'sub_fail_no_retrieve_1',
+      customer: 'cus_fail_no_retrieve_1',
+      status: 'past_due',
+      cancel_at_period_end: false,
+      metadata: {},
+      items: { data: [] },
+    });
+
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+    const retrieveCallsBefore = fakeStripe.callsFor(
+      'subscriptions.retrieve',
+    ).length;
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_no_retrieve_1',
+          amount_due: 4000,
+          currency: 'usd',
+          customer: 'cus_fail_no_retrieve_1',
+          subscription: 'sub_fail_no_retrieve_1',
+          metadata: {},
+        },
+        'evt_fail_no_retrieve_1',
+      ),
+    );
+
+    expect(fakeStripe.callsFor('subscriptions.retrieve').length).toBe(
+      retrieveCallsBefore,
+    );
+    expect(syncSpy).toHaveBeenCalledWith('cus_fail_no_retrieve_1');
+
+    syncSpy.mockRestore();
+  });
+
+  // Finding 6: metadata.donationId pointing to the wrong subscription →
+  // falls back to sub-id lookup and does NOT write a PE for the wrong donation.
+  it('meta.donationId points to donation with mismatched stripeSubscriptionId → FAILED PE NOT written for that donation', async () => {
+    // Donation D1 belongs to sub_A.
+    const donationA = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_A_mismatch',
+        stripeCustomerId: 'cus_fail_mismatch_1',
+      }),
+    });
+
+    // Invoice belongs to sub_B; metadata.donationId wrongly points to donationA.
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_failed',
+        {
+          id: 'in_fail_mismatch_1',
+          amount_due: 2500,
+          currency: 'usd',
+          customer: 'cus_fail_mismatch_1',
+          payment_intent: 'pi_fail_mismatch_1',
+          subscription: 'sub_B_mismatch',
+          metadata: {
+            source: 'donation',
+            donationId: donationA.id,
+            userId: USER,
+          },
+        },
+        'evt_fail_mismatch_1',
+      ),
+    );
+
+    // donationA must NOT have received a FAILED PE — sub_B has no matching Donation row.
+    const peCount = await prisma.paymentEvent.count({
+      where: { donationId: donationA.id, status: 'FAILED' },
+    });
+    expect(peCount).toBe(0);
+  });
+});
+
+describe('customer.subscription.created/updated — donation sub short-circuit (e2e)', () => {
+  let app: INestApplication<App>;
+  let fakeStripe: FakeStripeClient;
+  let service: StripeWebhookService;
+  let memberships: MembershipsService;
+
+  beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
+    const fakeVerifier = new FakeStripeWebhookVerifier();
+    ({ app } = await bootTestApp(DenyAllGuard, [
+      { token: StripeClient, useValue: fakeStripe },
+      { token: StripeWebhookVerifier, useValue: fakeVerifier },
+    ]));
+    service = app.get(StripeWebhookService);
+    memberships = app.get(MembershipsService);
+  });
+
+  beforeEach(() => {
+    fakeStripe.reset();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  // Donation subs are created with price_data (no lookup_key). Routing them
+  // through syncStripeData throws inside tierForLookupKey. This short-circuit
+  // must fire before the SUBSCRIPTION_EVENTS branch.
+  it('customer.subscription.created with source=donation → no exception; syncStripeData NOT called', async () => {
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'customer.subscription.created',
+          {
+            id: 'sub_don_created_1',
+            customer: 'cus_don_created_1',
+            status: 'active',
+            metadata: { source: 'donation', userId: USER },
+          },
+          'evt_sub_don_created_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    expect(syncSpy).not.toHaveBeenCalled();
+    syncSpy.mockRestore();
+  });
+
+  it('customer.subscription.updated with source=donation and cancel_at_period_end:true → no exception; donation row untouched', async () => {
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'customer.subscription.updated',
+          {
+            id: 'sub_don_updated_1',
+            customer: 'cus_don_updated_1',
+            status: 'active',
+            cancel_at_period_end: true,
+            metadata: { source: 'donation', userId: USER },
+          },
+          'evt_sub_don_updated_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    expect(syncSpy).not.toHaveBeenCalled();
+    syncSpy.mockRestore();
+  });
+
+  // Regression net: non-donation subscription.updated still routes to syncStripeData.
+  it('customer.subscription.updated for non-donation sub → syncStripeData IS called', async () => {
+    fakeStripe.seedSubscription({
+      id: 'sub_membership_upd_1',
+      customer: 'cus_membership_upd_1',
+      status: 'active',
+      cancel_at_period_end: false,
+      metadata: {},
+      items: { data: [] },
+    });
+
+    const syncSpy = jest.spyOn(memberships, 'syncStripeData');
+
+    await service.handle(
+      makeStripeEvent(
+        'customer.subscription.updated',
+        {
+          id: 'sub_membership_upd_1',
+          customer: 'cus_membership_upd_1',
+          status: 'active',
+          metadata: {},
+        },
+        'evt_sub_membership_upd_1',
+      ),
+    );
+
+    expect(syncSpy).toHaveBeenCalledWith('cus_membership_upd_1');
     syncSpy.mockRestore();
   });
 });
