@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DonationsService } from './donations.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from '../billing/stripe.client';
@@ -11,6 +12,7 @@ describe('DonationsService (one-time)', () => {
   let prisma: { campaign: any; donation: any; organization: any };
   let stripe: { stripe: { checkout: { sessions: { create: jest.Mock } } } };
   let billing: { getOrCreateStripeCustomer: jest.Mock };
+  let config: ConfigService;
 
   beforeEach(async () => {
     prisma = {
@@ -30,6 +32,7 @@ describe('DonationsService (one-time)', () => {
     billing = {
       getOrCreateStripeCustomer: jest.fn().mockResolvedValue({ stripeCustomerId: 'cus_test_1' }),
     };
+    config = { get: jest.fn().mockReturnValue('https://app.test') } as unknown as ConfigService;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -37,6 +40,7 @@ describe('DonationsService (one-time)', () => {
         { provide: PrismaService, useValue: prisma as any },
         { provide: StripeClient, useValue: stripe as any },
         { provide: BillingService, useValue: billing as any },
+        { provide: ConfigService, useValue: config },
       ],
     }).compile();
     service = module.get(DonationsService);
@@ -55,7 +59,6 @@ describe('DonationsService (one-time)', () => {
       campaignId: 'camp_1',
       cadence: 'ONCE',
       amountCents: 2500,
-      webOrigin: 'https://app.test',
     });
 
     expect(result).toEqual({ url: 'https://stripe.test/cs_test_1', donationId: 'don_1' });
@@ -110,7 +113,6 @@ describe('DonationsService (one-time)', () => {
         campaignId: 'camp_1',
         cadence: 'ONCE',
         amountCents: 99,
-        webOrigin: 'https://app.test',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -127,7 +129,6 @@ describe('DonationsService (one-time)', () => {
         campaignId: 'camp_1',
         cadence: 'ONCE',
         amountCents: 1_000_001,
-        webOrigin: 'https://app.test',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -144,7 +145,6 @@ describe('DonationsService (one-time)', () => {
         campaignId: 'camp_1',
         cadence: 'ONCE',
         amountCents: 2500,
-        webOrigin: 'https://app.test',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
@@ -166,7 +166,6 @@ describe('DonationsService (one-time)', () => {
         campaignId: 'camp_1',
         cadence: 'ONCE',
         amountCents: 2500,
-        webOrigin: 'https://app.test',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });

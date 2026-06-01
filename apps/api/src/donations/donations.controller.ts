@@ -16,7 +16,6 @@ export class DonationsController {
     @Body() dto: CreateDonationCheckoutDto,
   ): Promise<{ url: string; donationId: string }> {
     const user = req.user as { sub: string; email?: string };
-    const webOrigin = `${req.protocol}://${req.get('host')}`;
     return this.donations.createCheckoutSession({
       userSub: user.sub,
       userEmail: user.email,
@@ -24,7 +23,6 @@ export class DonationsController {
       cadence: dto.cadence,
       amountCents: dto.amountCents,
       currency: dto.currency,
-      webOrigin,
     });
   }
 }

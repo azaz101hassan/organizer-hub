@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   DonationCadence,
   DonationMode,
@@ -20,7 +21,6 @@ interface CreateCheckoutInput {
   cadence: DonationCadence;
   amountCents: number;
   currency?: string;
-  webOrigin: string;
 }
 
 @Injectable()
@@ -29,6 +29,7 @@ export class DonationsService {
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
     private readonly billing: BillingService,
+    private readonly config: ConfigService,
   ) {}
 
   async createCheckoutSession(
@@ -58,6 +59,8 @@ export class DonationsService {
       input.userEmail,
     );
 
+    const webOrigin =
+      this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
     const currency = input.currency ?? campaign.currency ?? 'usd';
 
     const donation = await this.prisma.donation.create({
@@ -102,10 +105,14 @@ export class DonationsService {
         },
       ],
       metadata,
-      success_url: `${input.webOrigin}/donate/thanks?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${input.webOrigin}/campaigns/${campaign.slug}?checkout=canceled`,
+      success_url: `${webOrigin}/donate/thanks?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${webOrigin}/campaigns/${campaign.slug}?checkout=canceled`,
     });
 
+    // If this update fails after Stripe has minted the session, the Donation row
+    // stays PENDING with no stripeCheckoutSessionId. The webhook handler (U10)
+    // recovers via metadata.donationId rather than stripeCheckoutSessionId, so
+    // PENDING rows without a session ID are not permanently stranded.
     await this.prisma.donation.update({
       where: { id: donation.id },
       data: { stripeCheckoutSessionId: session.id },
@@ -116,8 +123,9 @@ export class DonationsService {
 
   private deriveMode(cadence: DonationCadence): DonationMode {
     if (cadence === DonationCadence.ONCE) return DonationMode.ONE_TIME;
+    // Recurring cadences (MONTHLY, ANNUALLY) require subscription mode, which lands in a follow-up unit.
     throw new BadRequestException(
-      `cadence ${cadence} requires recurring mode; recurring lands in a follow-up unit`,
+      `cadence ${cadence} is not yet supported`,
     );
   }
 }
