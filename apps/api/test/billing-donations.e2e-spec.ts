@@ -99,5 +99,9 @@ describe('Donations checkout (one-time)', () => {
 
     const row = await prisma.donation.findUnique({ where: { id: res.body.donationId } });
     expect(row).toMatchObject({ mode: 'RECURRING', cadence: 'MONTHLY', status: 'PENDING' });
+
+    const calls = fakeStripe.callsFor('checkout.sessions.create');
+    const last = calls[calls.length - 1].args[0] as Record<string, unknown>;
+    expect(last.mode).toBe('subscription');
   });
 });

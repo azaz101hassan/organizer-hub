@@ -129,7 +129,7 @@ export class DonationsService {
   }
 
   private deriveMode(cadence: DonationCadence): DonationMode {
-    return cadence === DonationCadence.ONCE
+    return this.recurringFor(cadence) === null
       ? DonationMode.ONE_TIME
       : DonationMode.RECURRING;
   }
