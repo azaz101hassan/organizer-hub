@@ -430,3 +430,313 @@ describe('Donation webhook arm (e2e)', () => {
     expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
   });
 });
+
+describe('invoice.payment_succeeded — donation arm (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let fakeStripe: FakeStripeClient;
+  let service: StripeWebhookService;
+
+  beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
+    const fakeVerifier = new FakeStripeWebhookVerifier();
+    ({ app, prisma } = await bootTestApp(DenyAllGuard, [
+      { token: StripeClient, useValue: fakeStripe },
+      { token: StripeWebhookVerifier, useValue: fakeVerifier },
+    ]));
+    service = app.get(StripeWebhookService);
+  });
+
+  beforeEach(async () => {
+    fakeStripe.reset();
+    await prisma.paymentEvent.deleteMany({});
+    await prisma.donation.deleteMany({});
+    await prisma.campaign.deleteMany({});
+    await prisma.coalition.deleteMany({});
+
+    await prisma.organization.upsert({
+      where: { id: HOUSE_ORG_ID },
+      update: { donationsEnabled: true },
+      create: {
+        id: HOUSE_ORG_ID,
+        name: 'House',
+        slug: 'house',
+        createdBy: 'seed',
+        donationsEnabled: true,
+      },
+    });
+
+    await prisma.coalition.create({
+      data: coalitionFactory({ id: COALITION_ID, organizationId: HOUSE_ORG_ID }),
+    });
+    await prisma.campaign.create({
+      data: campaignFactory({
+        id: CAMPAIGN_ID,
+        coalitionId: COALITION_ID,
+        organizationId: HOUSE_ORG_ID,
+        status: 'ACTIVE',
+      }),
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('first invoice (subscription_create) promotes Donation PENDING→ACTIVE; does NOT write a new PaymentEvent', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'PENDING',
+        stripeSubscriptionId: 'sub_inv_test_1',
+        stripeCustomerId: 'cus_inv_test_1',
+      }),
+    });
+
+    // Simulate the PaymentEvent that handleCheckoutCreated wrote with donationId
+    // already stamped — this is the row U10 guarantees exists for the first charge.
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'PENDING',
+        amountCents: 2500,
+        currency: 'usd',
+        stripeCheckoutSessionId: 'cs_inv_test_1',
+        stripePaymentIntentId: 'pi_inv_test_1',
+        donationId: donation.id,
+      },
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_test_1',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_test_1',
+          payment_intent: 'pi_inv_test_1',
+          subscription: 'sub_inv_test_1',
+          billing_reason: 'subscription_create',
+          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+        },
+        'evt_inv_first_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE');
+
+    // Only the original checkout-session PE row — no new row was written.
+    const peCount = await prisma.paymentEvent.count({
+      where: { donationId: donation.id },
+    });
+    expect(peCount).toBe(1);
+  });
+
+  it('renewal invoice writes a fresh SUCCEEDED DONATION PaymentEvent; does not re-flip status', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_inv_test_2',
+        stripeCustomerId: 'cus_inv_test_2',
+      }),
+    });
+
+    // Existing PE from the first invoice (subscription_create).
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 2500,
+        currency: 'usd',
+        stripeInvoiceId: 'in_test_first',
+        stripePaymentIntentId: 'pi_inv_test_first',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_test_2',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_test_2',
+          payment_intent: 'pi_inv_test_2',
+          charge: 'ch_inv_test_2',
+          subscription: 'sub_inv_test_2',
+          billing_reason: 'subscription_cycle',
+          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+        },
+        'evt_inv_renewal_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE'); // unchanged
+
+    const peCount = await prisma.paymentEvent.count({
+      where: { donationId: donation.id },
+    });
+    expect(peCount).toBe(2);
+
+    const newPe = await prisma.paymentEvent.findFirstOrThrow({
+      where: { stripeInvoiceId: 'in_test_2', kind: 'DONATION' },
+    });
+    expect(newPe.status).toBe('SUCCEEDED');
+    expect(newPe.donationId).toBe(donation.id);
+    expect(newPe.amountCents).toBe(2500);
+    expect(newPe.currency).toBe('usd');
+    expect(newPe.stripeInvoiceId).toBe('in_test_2');
+  });
+
+  it('replaying the same renewal invoice is idempotent (PE count stays at 2)', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_inv_test_3',
+        stripeCustomerId: 'cus_inv_test_3',
+      }),
+    });
+
+    // First invoice PE.
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 2500,
+        currency: 'usd',
+        stripeInvoiceId: 'in_test_idem_first',
+        stripePaymentIntentId: 'pi_inv_idem_first',
+        donationId: donation.id,
+        succeededAt: new Date(),
+      },
+    });
+
+    const renewalEvent = makeStripeEvent(
+      'invoice.payment_succeeded',
+      {
+        id: 'in_test_idem_2',
+        amount_paid: 2500,
+        currency: 'usd',
+        customer: 'cus_inv_test_3',
+        payment_intent: 'pi_inv_idem_2',
+        subscription: 'sub_inv_test_3',
+        billing_reason: 'subscription_cycle',
+        metadata: { source: 'donation', donationId: donation.id, userId: USER },
+      },
+      'evt_inv_idem_1',
+    );
+
+    // First delivery.
+    await service.handle(renewalEvent);
+
+    // Second delivery of the same event — must be a no-op.
+    await service.handle(renewalEvent);
+
+    const peCount = await prisma.paymentEvent.count({
+      where: { donationId: donation.id },
+    });
+    expect(peCount).toBe(2); // not 3
+  });
+
+  it('missing Donation row: warn + no-op (no crash, no PE inserted)', async () => {
+    const initialPeCount = await prisma.paymentEvent.count();
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'invoice.payment_succeeded',
+          {
+            id: 'in_test_missing',
+            amount_paid: 2500,
+            currency: 'usd',
+            customer: 'cus_inv_missing',
+            payment_intent: 'pi_inv_missing',
+            subscription: 'sub_inv_missing_xyz',
+            billing_reason: 'subscription_cycle',
+            metadata: {
+              source: 'donation',
+              donationId: 'don_nonexistent_xyz',
+              userId: USER,
+            },
+          },
+          'evt_inv_missing_1',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+  });
+
+  it('renewal arriving while Donation still PENDING promotes to ACTIVE and writes a new PE', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'PENDING',
+        stripeSubscriptionId: 'sub_inv_test_5',
+        stripeCustomerId: 'cus_inv_test_5',
+      }),
+    });
+
+    await service.handle(
+      makeStripeEvent(
+        'invoice.payment_succeeded',
+        {
+          id: 'in_test_early_renewal',
+          amount_paid: 2500,
+          currency: 'usd',
+          customer: 'cus_inv_test_5',
+          payment_intent: 'pi_inv_test_5',
+          subscription: 'sub_inv_test_5',
+          billing_reason: 'subscription_cycle',
+          metadata: { source: 'donation', donationId: donation.id, userId: USER },
+        },
+        'evt_inv_early_renewal_1',
+      ),
+    );
+
+    const updated = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(updated.status).toBe('ACTIVE');
+
+    const newPe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_test_early_renewal', kind: 'DONATION' },
+    });
+    expect(newPe).not.toBeNull();
+    expect(newPe!.donationId).toBe(donation.id);
+    expect(newPe!.status).toBe('SUCCEEDED');
+  });
+});

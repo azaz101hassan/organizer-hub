@@ -64,6 +64,7 @@ export interface FakeStripeSubscription {
   customer: string;
   status: FakeSubscriptionStatus;
   cancel_at_period_end: boolean;
+  metadata?: Record<string, string>;
   items: {
     data: Array<{
       id: string;
@@ -258,6 +259,16 @@ export class FakeStripeClient {
             (s) => s.customer === params.customer,
           );
           return { data: out };
+        },
+        retrieve: async (
+          id: string,
+        ): Promise<FakeStripeSubscription & { metadata: Record<string, string> }> => {
+          this.calls.push({ method: 'subscriptions.retrieve', args: [id] });
+          const sub = this.subscriptions.get(id) as
+            | (FakeStripeSubscription & { metadata?: Record<string, string> })
+            | undefined;
+          if (!sub) throw new Error(`No such subscription: ${id}`);
+          return { ...sub, metadata: sub.metadata ?? {} };
         },
         update: async (
           id: string,

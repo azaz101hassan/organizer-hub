@@ -13,6 +13,7 @@ import { StripeClient } from '../billing/stripe.client';
 import { recordProcessedWebhookEvent } from '../billing/webhook-event.helper';
 import { PaymentEventsService } from '../payment-events/payment-events.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
+import { HOUSE_ORG_ID } from '../common/house-org';
 import type { Stripe } from '../billing/stripe-types';
 
 // Subscription-relevant events all converge on syncStripeData. checkout
@@ -605,6 +606,11 @@ export class StripeWebhookService {
   // through checkout.session.created/completed → a PaymentEvent row was
   // ALREADY created there. For renewal invoices (subscription already
   // existed), we insert a new MEMBERSHIP row keyed on the renewal PI.
+  //
+  // Donation subscriptions are intercepted first (before the
+  // subscription_create early-return) because the donation arm must promote
+  // PENDING → ACTIVE on the first invoice even though no new PaymentEvent is
+  // written for that first charge.
   private async handleInvoicePaid(
     event: Stripe.Event,
   ): Promise<WebhookHandleResult> {
@@ -617,10 +623,32 @@ export class StripeWebhookService {
       subscription?: string | null;
       billing_reason?: string;
       metadata?: Record<string, string | undefined> | null;
+      charge?: string | null;
     };
     this.logger.debug(
       `invoice.payment_succeeded ${event.id} invoice=${inv.id} reason=${inv.billing_reason}`,
     );
+
+    // Resolve subscription metadata so we can detect donation invoices.
+    // Try invoice.metadata first (fastest); fall back to subscription retrieval.
+    let subMeta: Record<string, string | undefined> | null =
+      inv.metadata ?? null;
+    if ((!subMeta?.source || !subMeta?.donationId) && inv.subscription) {
+      try {
+        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
+          inv.subscription,
+        );
+        subMeta = (sub.metadata as Record<string, string | undefined>) ?? null;
+      } catch {
+        // fall through; sub lookup is best-effort
+      }
+    }
+
+    if (subMeta?.source === 'donation') {
+      return this.handleDonationInvoicePaid(inv, subMeta, event.id);
+    }
+
+    // ---- Membership renewal path ----
     if (inv.billing_reason === 'subscription_create') {
       return { recorded: false }; // first invoice; already counted
     }
@@ -654,6 +682,117 @@ export class StripeWebhookService {
       stripeCustomerId: inv.customer,
       stripePaymentIntentId: inv.payment_intent,
       stripeInvoiceId: inv.id,
+    });
+    return { recorded: false };
+  }
+
+  // Handles invoice.payment_succeeded for donation subscriptions.
+  //
+  // Always promotes Donation PENDING → ACTIVE (covers both the first-invoice
+  // path and the edge case where a renewal arrives before payment_intent.succeeded
+  // flipped the status).
+  //
+  // Does NOT write a new PaymentEvent for billing_reason='subscription_create'
+  // because the checkout-session PaymentEvent (written by handleCheckoutCreated
+  // and stamped with donationId by handleDonationCheckoutCompleted) already
+  // covers that first charge — writing another row here would double-count it.
+  //
+  // For all subsequent invoices (billing_reason !== 'subscription_create') a
+  // fresh kind=DONATION, status=SUCCEEDED PaymentEvent is inserted, idempotent
+  // on stripeInvoiceId.
+  private async handleDonationInvoicePaid(
+    inv: {
+      id: string;
+      amount_paid: number;
+      currency: string;
+      customer: string;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      billing_reason?: string;
+      charge?: string | null;
+    },
+    meta: Record<string, string | undefined>,
+    webhookEventId: string,
+  ): Promise<WebhookHandleResult> {
+    // Resolve the Donation row: prefer explicit donationId in metadata, fall
+    // back to subscription id lookup (covers edge cases where metadata is thin).
+    let donation: {
+      id: string;
+      status: DonationStatus;
+      userId: string;
+      amountCents: number;
+      currency: string;
+    } | null = null;
+
+    if (meta.donationId) {
+      donation = await this.prisma.donation.findFirst({
+        where: { id: meta.donationId },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          amountCents: true,
+          currency: true,
+        },
+      });
+    }
+    if (!donation && inv.subscription) {
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeSubscriptionId: inv.subscription },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          amountCents: true,
+          currency: true,
+        },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${webhookEventId} source=donation but no Donation row found (donationId=${meta.donationId ?? 'none'} sub=${inv.subscription ?? 'none'}); ignoring`,
+      );
+      return { recorded: false };
+    }
+
+    // Promote PENDING → ACTIVE regardless of billing_reason.
+    if (donation.status === DonationStatus.PENDING) {
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: { status: DonationStatus.ACTIVE },
+      });
+    }
+
+    // First invoice: the original checkout-session PaymentEvent covers this
+    // charge; writing another row here would double-count it.
+    if (inv.billing_reason === 'subscription_create') {
+      return { recorded: false };
+    }
+
+    // Renewal invoice: insert a fresh DONATION PaymentEvent, idempotent on
+    // stripeInvoiceId so redelivery is a no-op.
+    const existing = await this.prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: inv.id, kind: PaymentEventKind.DONATION },
+    });
+    if (existing) {
+      return { recorded: false };
+    }
+
+    await this.prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: donation.userId,
+        kind: PaymentEventKind.DONATION,
+        status: PaymentEventStatus.SUCCEEDED,
+        amountCents: inv.amount_paid,
+        currency: inv.currency,
+        donationId: donation.id,
+        stripeInvoiceId: inv.id,
+        stripePaymentIntentId: inv.payment_intent ?? null,
+        stripeChargeId: inv.charge ?? null,
+        stripeCustomerId: inv.customer,
+        succeededAt: new Date(),
+      },
     });
     return { recorded: false };
   }
