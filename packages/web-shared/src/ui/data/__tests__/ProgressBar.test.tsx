@@ -1,0 +1,33 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { ProgressBar } from "../ProgressBar";
+
+describe("ProgressBar", () => {
+  it("renders raised/target width clamped to 100%", () => {
+    render(<ProgressBar valueCents={7500} targetCents={5000} label="t" />);
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "100%" });
+  });
+
+  it("handles target = 0 without NaN", () => {
+    render(<ProgressBar valueCents={0} targetCents={0} label="t" />);
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "0%" });
+  });
+
+  it("computes 30% for 3000/10000", () => {
+    render(<ProgressBar valueCents={3000} targetCents={10000} label="t" />);
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "30%" });
+  });
+
+  it("clamps a negative raised value to 0%", () => {
+    render(<ProgressBar valueCents={-500} targetCents={1000} label="t" />);
+    expect(screen.getByTestId("progress-fill")).toHaveStyle({ width: "0%" });
+  });
+
+  it("exposes a progressbar role with aria values", () => {
+    render(<ProgressBar valueCents={2500} targetCents={10000} label="Camp progress" />);
+    const bar = screen.getByRole("progressbar", { name: "Camp progress" });
+    expect(bar).toHaveAttribute("aria-valuenow", "25");
+    expect(bar).toHaveAttribute("aria-valuemin", "0");
+    expect(bar).toHaveAttribute("aria-valuemax", "100");
+  });
+});
