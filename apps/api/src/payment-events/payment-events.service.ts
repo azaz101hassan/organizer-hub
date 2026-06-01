@@ -5,8 +5,7 @@ import {
   PaymentEventStatus,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
-
-const HOUSE_ORG_ID = 'org_house_000000000000000001';
+import { HOUSE_ORG_ID } from '../common/house-org';
 
 export interface PendingChargeInput {
   userId: string;
