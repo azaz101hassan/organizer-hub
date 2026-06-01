@@ -11,8 +11,7 @@ describe('CoalitionsService', () => {
     prisma = {
       coalition: { findMany: jest.fn(), findUnique: jest.fn() },
       campaign: { findMany: jest.fn() },
-      donation: { groupBy: jest.fn() },
-      paymentEvent: { aggregate: jest.fn() },
+      paymentEvent: { aggregate: jest.fn(), groupBy: jest.fn() },
       $queryRaw: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
@@ -92,6 +91,36 @@ describe('CoalitionsService', () => {
 
       expect(result).toEqual([]);
       expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('maps child_count from $queryRaw result without multiplication (COUNT DISTINCT contract)', async () => {
+      // Simulates a coalition with 2 campaigns and payment history: the SQL
+      // now uses COUNT(DISTINCT c.id) so child_count must equal the number of
+      // distinct campaigns, not the join expansion factor.
+      const coalitions = [
+        {
+          id: 'coal_distinct',
+          slug: 'distinct',
+          name: 'Distinct Coalition',
+          description: null,
+          coverImageUrl: null,
+          organizationId: 'org_1',
+          status: 'ACTIVE',
+          displayOrder: 0,
+        },
+      ];
+      prisma.coalition.findMany.mockResolvedValue(coalitions);
+      // $queryRaw returns child_count = 2 (two distinct campaigns),
+      // NOT 6 (2 campaigns × 3 payment events each) as the old COUNT(c.id) would.
+      prisma.$queryRaw.mockResolvedValue([
+        { coalition_id: 'coal_distinct', child_count: BigInt(2), total_raised: BigInt(30000) },
+      ]);
+
+      const result = await service.listForOrg('org_1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].childCampaignCount).toBe(2);
+      expect(result[0].totalRaisedCents).toBe(30000);
     });
 
     it('fills 0 for coalitions absent from the stats result', async () => {
@@ -184,7 +213,7 @@ describe('CoalitionsService', () => {
       prisma.paymentEvent.aggregate.mockResolvedValue({
         _sum: { amountCents: 7500 },
       });
-      prisma.donation.groupBy.mockResolvedValue([
+      prisma.paymentEvent.groupBy.mockResolvedValue([
         { userId: 'user_a' },
         { userId: 'user_b' },
       ]);
@@ -225,12 +254,12 @@ describe('CoalitionsService', () => {
         }),
       );
 
-      expect(prisma.donation.groupBy).toHaveBeenCalledWith(
+      expect(prisma.paymentEvent.groupBy).toHaveBeenCalledWith(
         expect.objectContaining({
           by: ['userId'],
           where: expect.objectContaining({
-            campaignId: 'camp_1',
-            status: { in: ['ACTIVE', 'COMPLETED'] },
+            donation: { campaignId: 'camp_1' },
+            status: 'SUCCEEDED',
           }),
         }),
       );

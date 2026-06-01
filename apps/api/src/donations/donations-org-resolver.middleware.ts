@@ -59,10 +59,11 @@ export class DonationsOrgResolverMiddleware implements NestMiddleware {
     }
 
     // Fallback: single-tenant public reads (e.g. GET /coalitions).
-    // req.organization is still unset — resolve the house org so
-    // DonationsFeatureFlagGuard can check donationsEnabled without
-    // per-route resolution logic.
-    if (!(req as any).organization) {
+    // Scoped to GET only: POST routes that fail to resolve an explicit
+    // identifier (e.g. missing campaignId) must not fall through to the house
+    // org — the guard should 404 rather than letting the request reach the
+    // controller via an unintended org.
+    if (!(req as any).organization && req.method === 'GET') {
       const org = await this.prisma.organization.findUnique({
         where: { id: HOUSE_ORG_ID },
         select: { id: true, donationsEnabled: true },

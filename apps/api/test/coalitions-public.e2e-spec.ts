@@ -3,7 +3,7 @@ import { App } from 'supertest/types';
 import request from 'supertest';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { bootTestApp, makeSubHolder, stubJwtAuthGuard } from './helpers/boot-test-app';
-import { coalitionFactory, campaignFactory } from './factories';
+import { coalitionFactory, campaignFactory, donationFactory } from './factories';
 import { HOUSE_ORG_ID } from '../src/common/house-org';
 
 describe('GET /coalitions (public list)', () => {
@@ -101,6 +101,66 @@ describe('GET /coalitions (public list)', () => {
 
     const res = await request(app.getHttpServer()).get('/coalitions');
     expect(res.status).toBe(404);
+  });
+
+  it('childCampaignCount equals number of campaigns, not number of payment-event rows', async () => {
+    // Seed a second ACTIVE campaign in the same coalition.
+    await prisma.campaign.create({
+      data: campaignFactory({
+        id: 'camp_pub_c2',
+        organizationId: HOUSE_ORG_ID,
+        coalitionId: 'coal_pub_active',
+        slug: 'c2',
+        name: 'Campaign Two',
+        status: 'ACTIVE',
+      }),
+    });
+
+    // Create 1 donation on each campaign, each donation has 3 SUCCEEDED PaymentEvents.
+    // Total join-expansion factor: 2 campaigns × 3 events = 6 rows if COUNT is not DISTINCT.
+    const amountCents = 1000;
+    for (const { donId, campId } of [
+      { donId: 'don_c1_explode', campId: 'camp_pub_c1' },
+      { donId: 'don_c2_explode', campId: 'camp_pub_c2' },
+    ]) {
+      await prisma.donation.create({
+        data: donationFactory({
+          id: donId,
+          userId: 'user_explode',
+          campaignId: campId,
+          organizationId: HOUSE_ORG_ID,
+          mode: 'ONE_TIME',
+          status: 'COMPLETED',
+          amountCents,
+        }),
+      });
+      for (let i = 0; i < 3; i++) {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: HOUSE_ORG_ID,
+            userId: 'user_explode',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents,
+            currency: 'usd',
+            donationId: donId,
+            stripePaymentIntentId: `pi_explode_${donId}_${i}`,
+            stripeInvoiceId: `inv_explode_${donId}_${i}`,
+            stripeChargeId: `ch_explode_${donId}_${i}`,
+            succeededAt: new Date(),
+          },
+        });
+      }
+    }
+
+    const res = await request(app.getHttpServer()).get('/coalitions');
+
+    expect(res.status).toBe(200);
+    const item = res.body.find((c: any) => c.id === 'coal_pub_active');
+    // 2 distinct campaigns — must NOT be 6 (the join-explosion factor)
+    expect(item.childCampaignCount).toBe(2);
+    // 2 donations × 3 payment events × 1000 = 6000
+    expect(item.totalRaisedCents).toBe(6000);
   });
 });
 
@@ -206,5 +266,72 @@ describe('GET /coalitions/:slug (public detail)', () => {
 
     const res = await request(app.getHttpServer()).get('/coalitions/a');
     expect(res.status).toBe(404);
+  });
+
+  it('counts a canceled-recurring donor toward donorCount (symmetric with raisedCents)', async () => {
+    // u1: donated and later canceled — donation status CANCELED, but their
+    // PaymentEvent is SUCCEEDED and should still count toward donorCount.
+    const don1 = await prisma.donation.create({
+      data: donationFactory({
+        id: 'don_canceled_u1',
+        userId: 'u1_canceled',
+        campaignId: 'camp_pub_c1',
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        status: 'CANCELED',
+        amountCents: 5000,
+      }),
+    });
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: 'u1_canceled',
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 5000,
+        currency: 'usd',
+        donationId: don1.id,
+        stripePaymentIntentId: `pi_canceled_u1`,
+        stripeInvoiceId: `inv_canceled_u1`,
+        stripeChargeId: `ch_canceled_u1`,
+        succeededAt: new Date(),
+      },
+    });
+
+    // u2: currently ACTIVE donor
+    const don2 = await prisma.donation.create({
+      data: donationFactory({
+        id: 'don_active_u2',
+        userId: 'u2_active',
+        campaignId: 'camp_pub_c1',
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        status: 'ACTIVE',
+        amountCents: 5000,
+      }),
+    });
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: 'u2_active',
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 5000,
+        currency: 'usd',
+        donationId: don2.id,
+        stripePaymentIntentId: `pi_active_u2`,
+        stripeInvoiceId: `inv_active_u2`,
+        stripeChargeId: `ch_active_u2`,
+        succeededAt: new Date(),
+      },
+    });
+
+    const res = await request(app.getHttpServer()).get('/coalitions/a');
+
+    expect(res.status).toBe(200);
+    const summary = res.body.campaigns.find((c: any) => c.id === 'camp_pub_c1');
+    // Both users must count — u1 was canceled but still paid
+    expect(summary.donorCount).toBe(2);
+    expect(summary.raisedCents).toBe(10000);
   });
 });

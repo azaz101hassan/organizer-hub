@@ -52,7 +52,7 @@ export class CoalitionsService {
       Prisma.sql`
         SELECT
           c.coalition_id,
-          COUNT(c.id)::bigint                          AS child_count,
+          COUNT(DISTINCT c.id)::bigint                 AS child_count,
           SUM(pe.amount_cents)::bigint                 AS total_raised
         FROM campaigns c
         LEFT JOIN donations d
@@ -124,11 +124,11 @@ export class CoalitionsService {
           },
         });
 
-        const donorRows = await this.prisma.donation.groupBy({
+        const donorRows = await this.prisma.paymentEvent.groupBy({
           by: ['userId'],
           where: {
-            campaignId: cmp.id,
-            status: { in: ['ACTIVE', 'COMPLETED'] },
+            donation: { campaignId: cmp.id },
+            status: 'SUCCEEDED',
           },
         });
 

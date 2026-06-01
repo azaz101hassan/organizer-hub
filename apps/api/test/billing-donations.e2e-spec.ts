@@ -11,6 +11,7 @@ import {
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
 import { campaignFactory, coalitionFactory, donationFactory } from './factories';
+import { HOUSE_ORG_ID } from '../src/common/house-org';
 
 const USER = 'user-donations-1';
 
@@ -44,6 +45,21 @@ describe('Donations checkout (one-time)', () => {
         name: 'Test Org',
         slug: 'org-test-donations',
         createdBy: 'user-test',
+        donationsEnabled: true,
+      },
+    });
+    // Seed HOUSE_ORG_ID with donationsEnabled:true so the middleware fallback
+    // can actually resolve it — this makes the regression test real: without
+    // the GET-only guard, a POST with no campaignId would fall through to the
+    // house org and reach the controller (returning 400, not 404).
+    await prisma.organization.upsert({
+      where: { id: HOUSE_ORG_ID },
+      update: { donationsEnabled: true },
+      create: {
+        id: HOUSE_ORG_ID,
+        name: 'House',
+        slug: 'house',
+        createdBy: 'seed',
         donationsEnabled: true,
       },
     });
@@ -103,6 +119,18 @@ describe('Donations checkout (one-time)', () => {
     const calls = fakeStripe.callsFor('checkout.sessions.create');
     const last = calls[calls.length - 1].args[0] as Record<string, unknown>;
     expect(last.mode).toBe('subscription');
+  });
+
+  it('returns 404 when the body has no campaignId — guard must short-circuit, controller must not run', async () => {
+    // HOUSE_ORG_ID is seeded with donationsEnabled:true in beforeEach.
+    // Without the GET-only guard on the fallback, the middleware would resolve
+    // HOUSE_ORG_ID and the guard would pass, landing a 400 (DTO validation)
+    // instead of 404. With the fix, no org is resolved for this POST, the
+    // guard sees req.organization === undefined, and returns 404.
+    const res = await request(app.getHttpServer())
+      .post('/billing/checkout/donation')
+      .send({ cadence: 'ONCE', amountCents: 2500 }); // no campaignId
+    expect(res.status).toBe(404);
   });
 });
 
