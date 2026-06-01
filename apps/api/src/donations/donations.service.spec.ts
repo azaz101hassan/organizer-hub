@@ -170,3 +170,124 @@ describe('DonationsService (one-time)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+describe('DonationsService (recurring)', () => {
+  let service: DonationsService;
+  let prisma: { campaign: any; donation: any; organization: any };
+  let stripe: { stripe: { checkout: { sessions: { create: jest.Mock } } } };
+  let billing: { getOrCreateStripeCustomer: jest.Mock };
+  let config: ConfigService;
+
+  beforeEach(async () => {
+    prisma = {
+      campaign: { findUnique: jest.fn() },
+      donation: { create: jest.fn(), update: jest.fn() },
+      organization: { findUnique: jest.fn() },
+    };
+    stripe = {
+      stripe: {
+        checkout: {
+          sessions: {
+            create: jest.fn().mockResolvedValue({ id: 'cs_test_2', url: 'https://stripe.test/cs_test_2' }),
+          },
+        },
+      },
+    };
+    billing = {
+      getOrCreateStripeCustomer: jest.fn().mockResolvedValue({ stripeCustomerId: 'cus_test_1' }),
+    };
+    config = { get: jest.fn().mockReturnValue('https://app.test') } as unknown as ConfigService;
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DonationsService,
+        { provide: PrismaService, useValue: prisma as any },
+        { provide: StripeClient, useValue: stripe as any },
+        { provide: BillingService, useValue: billing as any },
+        { provide: ConfigService, useValue: config },
+      ],
+    }).compile();
+    service = module.get(DonationsService);
+  });
+
+  const setupCampaign = () => {
+    prisma.campaign.findUnique.mockResolvedValue({
+      ...campaignFactory({ id: 'camp_1', organizationId: 'org_1', status: 'ACTIVE', currency: 'usd' }),
+      coalition: coalitionFactory({ id: 'coal_1', organizationId: 'org_1' }),
+    });
+    prisma.donation.create.mockResolvedValue({ id: 'don_2' });
+  };
+
+  it('maps MONTHLY to interval=month, interval_count=1', async () => {
+    setupCampaign();
+    await service.createCheckoutSession({
+      userSub: 'user_1',
+      userEmail: 'donor@test',
+      campaignId: 'camp_1',
+      cadence: 'MONTHLY',
+      amountCents: 2500,
+    });
+    expect(stripe.stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'subscription',
+        line_items: [
+          expect.objectContaining({
+            price_data: expect.objectContaining({
+              recurring: { interval: 'month', interval_count: 1 },
+            }),
+          }),
+        ],
+        subscription_data: expect.objectContaining({
+          metadata: expect.objectContaining({ source: 'donation' }),
+        }),
+      }),
+    );
+    expect(prisma.donation.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ mode: 'RECURRING', cadence: 'MONTHLY' }) }),
+    );
+  });
+
+  it('maps QUARTERLY to interval=month, interval_count=3', async () => {
+    setupCampaign();
+    await service.createCheckoutSession({
+      userSub: 'user_1',
+      userEmail: 'donor@test',
+      campaignId: 'camp_1',
+      cadence: 'QUARTERLY',
+      amountCents: 2500,
+    });
+    expect(stripe.stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        line_items: [
+          expect.objectContaining({
+            price_data: expect.objectContaining({
+              recurring: { interval: 'month', interval_count: 3 },
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('maps YEARLY to interval=year, interval_count=1', async () => {
+    setupCampaign();
+    await service.createCheckoutSession({
+      userSub: 'user_1',
+      userEmail: 'donor@test',
+      campaignId: 'camp_1',
+      cadence: 'YEARLY',
+      amountCents: 2500,
+    });
+    expect(stripe.stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        line_items: [
+          expect.objectContaining({
+            price_data: expect.objectContaining({
+              recurring: { interval: 'year', interval_count: 1 },
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+});

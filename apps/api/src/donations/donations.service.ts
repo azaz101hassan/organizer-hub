@@ -84,8 +84,11 @@ export class DonationsService {
       campaignId: campaign.id,
     };
 
+    const recurring = this.recurringFor(input.cadence);
+    const isRecurring = recurring !== null;
+
     const session = await this.stripeClient.stripe.checkout.sessions.create({
-      mode: 'payment',
+      mode: isRecurring ? 'subscription' : 'payment',
       customer: customer.stripeCustomerId,
       client_reference_id: input.userSub,
       line_items: [
@@ -94,8 +97,11 @@ export class DonationsService {
           price_data: {
             currency,
             unit_amount: input.amountCents,
+            ...(recurring ? { recurring } : {}),
             product_data: {
-              name: `Donation: ${campaign.name}`,
+              name: isRecurring
+                ? `Recurring donation: ${campaign.name}`
+                : `Donation: ${campaign.name}`,
               metadata: {
                 campaignId: campaign.id,
                 coalitionId: campaign.coalitionId,
@@ -105,6 +111,7 @@ export class DonationsService {
         },
       ],
       metadata,
+      ...(isRecurring ? { subscription_data: { metadata } } : {}),
       success_url: `${webOrigin}/donate/thanks?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${webOrigin}/campaigns/${campaign.slug}?checkout=canceled`,
     });
@@ -122,10 +129,24 @@ export class DonationsService {
   }
 
   private deriveMode(cadence: DonationCadence): DonationMode {
-    if (cadence === DonationCadence.ONCE) return DonationMode.ONE_TIME;
-    // Recurring cadences (MONTHLY, ANNUALLY) require subscription mode, which lands in a follow-up unit.
-    throw new BadRequestException(
-      `cadence ${cadence} is not yet supported`,
-    );
+    return cadence === DonationCadence.ONCE
+      ? DonationMode.ONE_TIME
+      : DonationMode.RECURRING;
+  }
+
+  private recurringFor(cadence: DonationCadence):
+    | { interval: 'month'; interval_count: 1 | 3 }
+    | { interval: 'year'; interval_count: 1 }
+    | null {
+    switch (cadence) {
+      case DonationCadence.MONTHLY:
+        return { interval: 'month', interval_count: 1 };
+      case DonationCadence.QUARTERLY:
+        return { interval: 'month', interval_count: 3 };
+      case DonationCadence.YEARLY:
+        return { interval: 'year', interval_count: 1 };
+      case DonationCadence.ONCE:
+        return null;
+    }
   }
 }

@@ -89,4 +89,15 @@ describe('Donations checkout (one-time)', () => {
       .send({ campaignId: 'camp_1', cadence: 'ONCE', amountCents: 2500 });
     expect(res.status).toBe(404);
   });
+
+  it('returns 201 with url + donationId for a MONTHLY recurring request and writes mode=RECURRING', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/billing/checkout/donation')
+      .send({ campaignId: 'camp_1', cadence: 'MONTHLY', amountCents: 2500 });
+    expect(res.status).toBe(201);
+    expect(res.body.donationId).toEqual(expect.any(String));
+
+    const row = await prisma.donation.findUnique({ where: { id: res.body.donationId } });
+    expect(row).toMatchObject({ mode: 'RECURRING', cadence: 'MONTHLY', status: 'PENDING' });
+  });
 });
