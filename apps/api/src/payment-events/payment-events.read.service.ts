@@ -12,10 +12,8 @@ import {
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryPaymentEventsDto } from './dto/query-payment-events.dto';
-import {
-  PaymentEventView,
-  toPaymentEventView,
-} from './dto/payment-event-view';
+import { PaymentEventView, toPaymentEventView } from './dto/payment-event-view';
+import { paginateById } from '../common/paginate';
 
 const WRITE_ROLES: ReadonlySet<OrganizationRole> = new Set([
   OrganizationRole.OWNER,
@@ -96,7 +94,10 @@ export class PaymentEventsReadService {
 
   private applyOptionalFilters(
     where: Prisma.PaymentEventWhereInput,
-    q: Pick<QueryPaymentEventsDto, 'kind' | 'status' | 'from' | 'to' | 'campaignId' | 'recurringOnly'>,
+    q: Pick<
+      QueryPaymentEventsDto,
+      'kind' | 'status' | 'from' | 'to' | 'campaignId' | 'recurringOnly'
+    >,
   ): void {
     if (
       (q.campaignId || q.recurringOnly === 'true') &&
@@ -125,18 +126,21 @@ export class PaymentEventsReadService {
     where: Prisma.PaymentEventWhereInput,
     q: QueryPaymentEventsDto,
   ): Promise<ListPage> {
-    const take = q.limit ?? 20;
-    const rows = await this.prisma.paymentEvent.findMany({
-      where,
-      take: take + 1,
-      ...(q.cursor ? { skip: 1, cursor: { id: q.cursor } } : {}),
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
-    const hasMore = rows.length > take;
-    const items = (hasMore ? rows.slice(0, -1) : rows).map(toPaymentEventView);
+    const page = await paginateById(
+      (args) =>
+        this.prisma.paymentEvent.findMany(
+          args as Parameters<typeof this.prisma.paymentEvent.findMany>[0],
+        ),
+      {
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        cursor: q.cursor,
+        limit: q.limit,
+      },
+    );
     return {
-      items,
-      nextCursor: hasMore ? items[items.length - 1].id : null,
+      items: page.items.map(toPaymentEventView),
+      nextCursor: page.nextCursor,
     };
   }
 

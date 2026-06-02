@@ -6,6 +6,8 @@ import {
   UnauthorizedError,
   getHouseOrgId,
   donationsEnabledForOrg,
+  listCampaignsAdmin,
+  type CampaignListPage,
 } from "@organizer-hub/web-shared";
 import {
   Card,
@@ -75,31 +77,40 @@ const CAMPAIGN_STATUS_PILL: Record<CampaignStatus, { tone: PillTone; label: stri
 
 export default async function CoalitionDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ cursor?: string }>;
 }) {
   const { id } = await params;
+  const { cursor } = await searchParams;
   const orgId = getHouseOrgId();
 
   if (!(await donationsEnabledForOrg())) notFound();
 
   let coalition: CoalitionDetail;
-  let campaigns: CampaignRow[] = [];
+  let campaignPage: CampaignListPage = { items: [], nextCursor: null };
 
   try {
-    [coalition, campaigns] = await Promise.all([
+    [coalition, campaignPage] = await Promise.all([
       apiFetch<CoalitionDetail>(
         `/orgs/${encodeURIComponent(orgId)}/coalitions/${encodeURIComponent(id)}`,
       ),
-      apiFetch<CampaignRow[]>(
-        `/orgs/${encodeURIComponent(orgId)}/campaigns?coalitionId=${encodeURIComponent(id)}`,
-      ),
+      listCampaignsAdmin(orgId, {
+        coalitionId: id,
+        ...(cursor ? { cursor } : {}),
+      }),
     ]);
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
   }
+
+  const campaigns = campaignPage.items as unknown as CampaignRow[];
+  const nextCampaignHref = campaignPage.nextCursor
+    ? `/coalitions/${encodeURIComponent(id)}?cursor=${encodeURIComponent(campaignPage.nextCursor)}`
+    : null;
 
   const columns: Column<CampaignRow>[] = [
     {
@@ -188,6 +199,13 @@ export default async function CoalitionDetailPage({
         rows={campaigns}
         empty="No campaigns under this coalition yet."
       />
+      {nextCampaignHref && (
+        <div style={{ marginTop: 16 }}>
+          <Link href={nextCampaignHref} className="link" style={{ fontSize: 13.5 }}>
+            Next page →
+          </Link>
+        </div>
+      )}
     </>
   );
 }

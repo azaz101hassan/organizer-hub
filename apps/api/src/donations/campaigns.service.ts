@@ -7,6 +7,8 @@ import {
 import { CampaignStatus, Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { DonationsService } from './donations.service';
+import { paginateById } from '../common/paginate';
+import type { ListCampaignsAdminDto } from './dto/list-campaigns-admin.dto';
 
 const LEGAL_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatus[]> = {
   DRAFT: ['ACTIVE', 'ARCHIVED'],
@@ -152,16 +154,24 @@ export class CampaignsService {
 
   async listAllForAdmin(
     organizationId: string,
-    filters: { coalitionId?: string } = {},
+    filters: ListCampaignsAdminDto = {},
   ) {
-    return this.prisma.campaign.findMany({
-      where: {
-        organizationId,
-        ...(filters.coalitionId ? { coalitionId: filters.coalitionId } : {}),
+    return paginateById(
+      (args) =>
+        this.prisma.campaign.findMany(
+          args as Parameters<typeof this.prisma.campaign.findMany>[0],
+        ),
+      {
+        where: {
+          organizationId,
+          ...(filters.coalitionId ? { coalitionId: filters.coalitionId } : {}),
+        },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        include: { coalition: this.coalitionSelect },
+        cursor: filters.cursor,
+        limit: filters.limit,
       },
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      include: { coalition: this.coalitionSelect },
-    });
+    );
   }
 
   async getForAdmin(organizationId: string, id: string) {

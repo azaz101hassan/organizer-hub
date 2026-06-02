@@ -6,6 +6,8 @@ import {
   UnauthorizedError,
   getHouseOrgId,
   donationsEnabledForOrg,
+  listDonationsAdmin,
+  type DonationListPage,
 } from "@organizer-hub/web-shared";
 import {
   Card,
@@ -111,31 +113,40 @@ const MODE_LABEL: Record<DonationMode, string> = {
 
 export default async function AdminCampaignDetail({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ cursor?: string }>;
 }) {
   const orgId = getHouseOrgId();
   const enabled = await donationsEnabledForOrg();
   if (!enabled) notFound();
 
   const { id } = await params;
+  const { cursor } = await searchParams;
 
   let campaign: CampaignDetail;
-  let donations: DonationRow[] = [];
+  let donationPage: DonationListPage = { items: [], nextCursor: null };
   try {
-    [campaign, donations] = await Promise.all([
+    [campaign, donationPage] = await Promise.all([
       apiFetch<CampaignDetail>(
         `/orgs/${encodeURIComponent(orgId)}/campaigns/${encodeURIComponent(id)}`,
       ),
-      apiFetch<DonationRow[]>(
-        `/orgs/${encodeURIComponent(orgId)}/donations?campaignId=${encodeURIComponent(id)}`,
-      ),
+      listDonationsAdmin(orgId, {
+        campaignId: id,
+        ...(cursor ? { cursor } : {}),
+      }),
     ]);
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
   }
+
+  const donations = donationPage.items as DonationRow[];
+  const nextDonationHref = donationPage.nextCursor
+    ? `/campaigns/${encodeURIComponent(id)}?cursor=${encodeURIComponent(donationPage.nextCursor)}`
+    : null;
 
   const { tone: statusTone, label: statusLabel } =
     STATUS_PILL[campaign.status] ?? { tone: "pending" as PillTone, label: campaign.status };
@@ -388,6 +399,13 @@ export default async function AdminCampaignDetail({
         rows={donations}
         empty="No donations on this campaign yet."
       />
+      {nextDonationHref && (
+        <div style={{ marginTop: 16 }}>
+          <Link href={nextDonationHref} className="link" style={{ fontSize: 13.5 }}>
+            Next page →
+          </Link>
+        </div>
+      )}
     </>
   );
 }

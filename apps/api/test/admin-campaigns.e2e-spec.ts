@@ -20,6 +20,11 @@ import {
 const ADMIN_USER = 'admin-camp-1';
 const ORG_ID = 'org_admin_camp_test';
 
+interface PageBody<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 describe('Admin campaigns API', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -100,15 +105,16 @@ describe('Admin campaigns API', () => {
   });
 
   describe('GET /orgs/:orgId/campaigns', () => {
-    it('returns 200 with a list including the seeded DRAFT campaign (admin sees DRAFT)', async () => {
+    it('returns 200 with paginated shape including the seeded DRAFT campaign (admin sees DRAFT)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      const item = (res.body as { id: string; status: string }[]).find(
-        (c) => c.id === campaignId,
-      );
+      const body = res.body as PageBody<{ id: string; status: string }>;
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('nextCursor');
+      expect(Array.isArray(body.items)).toBe(true);
+      const item = body.items.find((c) => c.id === campaignId);
       expect(item).toBeDefined();
       expect(item?.status).toBe('DRAFT');
     });
@@ -140,11 +146,12 @@ describe('Admin campaigns API', () => {
           .get(`/orgs/${ORG_ID}/campaigns?coalitionId=${secondCoalition.id}`)
           .expect(200);
 
-        expect(Array.isArray(res.body)).toBe(true);
-        const ids = (res.body as { id: string }[]).map((c) => c.id);
+        const body = res.body as PageBody<{ id: string }>;
+        expect(Array.isArray(body.items)).toBe(true);
+        const ids = body.items.map((c) => c.id);
         expect(ids).toContain(secondCampaign.id);
         expect(ids).not.toContain(campaignId);
-        expect(res.body).toHaveLength(1);
+        expect(body.items).toHaveLength(1);
       } finally {
         await prisma.campaign
           .delete({ where: { id: secondCampaign.id } })
@@ -155,13 +162,14 @@ describe('Admin campaigns API', () => {
       }
     });
 
-    it('filter no-match: returns empty array when coalitionId matches no campaigns', async () => {
+    it('filter no-match: returns empty items when coalitionId matches no campaigns', async () => {
       const res = await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns?coalitionId=nonexistent-cuid-value`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body).toHaveLength(0);
+      const body = res.body as PageBody<{ id: string }>;
+      expect(Array.isArray(body.items)).toBe(true);
+      expect(body.items).toHaveLength(0);
     });
 
     it('filter validation: returns 400 when coalitionId is an empty string', async () => {
@@ -174,6 +182,86 @@ describe('Admin campaigns API', () => {
       await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns?unknownField=foo`)
         .expect(400);
+    });
+  });
+
+  describe('pagination', () => {
+    it('default limit 20: 25 campaigns → first page has 20 items + nextCursor', async () => {
+      // Seed 24 additional campaigns (1 already seeded in beforeEach = 25 total)
+      for (let i = 2; i <= 25; i++) {
+        await prisma.campaign.create({
+          data: campaignFactory({
+            id: `camp_pag_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            coalitionId,
+            slug: `pagination-campaign-${i}`,
+            name: `Pagination Campaign ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns`)
+        .expect(200);
+
+      const page1 = res.body as PageBody<{ id: string }>;
+      expect(page1.items).toHaveLength(20);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Fetch second page using the cursor
+      const res2 = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?cursor=${page1.nextCursor}`)
+        .expect(200);
+
+      const page2 = res2.body as PageBody<{ id: string }>;
+      expect(page2.items).toHaveLength(5);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it('limit=5: returns 5 items and a cursor from 25 campaigns', async () => {
+      for (let i = 2; i <= 25; i++) {
+        await prisma.campaign.create({
+          data: campaignFactory({
+            id: `camp_lim_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            coalitionId,
+            slug: `limit-campaign-${i}`,
+            name: `Limit Campaign ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=5`)
+        .expect(200);
+
+      const page = res.body as PageBody<{ id: string }>;
+      expect(page.items).toHaveLength(5);
+      expect(page.nextCursor).not.toBeNull();
+    });
+
+    it('limit=101 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=101`)
+        .expect(400);
+    });
+
+    it('limit=0 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=0`)
+        .expect(400);
+    });
+
+    it('malformed cursor (non-existent id) returns 200 with empty items', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?cursor=nonexistent_cursor_id`)
+        .expect(200);
+
+      const page = res.body as PageBody<{ id: string }>;
+      expect(page.items).toHaveLength(0);
+      expect(page.nextCursor).toBeNull();
     });
   });
 

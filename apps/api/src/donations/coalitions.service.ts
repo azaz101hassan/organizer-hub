@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
+import { paginateById } from '../common/paginate';
+import type { ListCoalitionsAdminDto } from './dto/list-coalitions-admin.dto';
 
 export interface CoalitionListItem {
   id: string;
@@ -171,12 +173,23 @@ export class CoalitionsService {
 
   // ── Admin methods ────────────────────────────────────────────────────────────
 
-  async listAllForAdmin(organizationId: string) {
-    return this.prisma.coalition.findMany({
-      where: { organizationId },
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      include: { _count: { select: { campaigns: true } } },
-    });
+  async listAllForAdmin(
+    organizationId: string,
+    q: ListCoalitionsAdminDto = {},
+  ) {
+    return paginateById(
+      (args) =>
+        this.prisma.coalition.findMany(
+          args as Parameters<typeof this.prisma.coalition.findMany>[0],
+        ),
+      {
+        where: { organizationId },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        include: { _count: { select: { campaigns: true } } },
+        cursor: q.cursor,
+        limit: q.limit,
+      },
+    );
   }
 
   async getForAdmin(organizationId: string, id: string) {

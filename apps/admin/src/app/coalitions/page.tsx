@@ -1,10 +1,13 @@
+import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import {
   ApiError,
-  apiFetch,
   UnauthorizedError,
   getHouseOrgId,
   donationsEnabledForOrg,
+  listCoalitionsAdmin,
+  type AdminCoalitionRow,
+  type CoalitionListPage,
 } from "@organizer-hub/web-shared";
 import {
   DataTable,
@@ -17,20 +20,10 @@ import Filters from "./Filters";
 
 export const dynamic = "force-dynamic";
 
-type CoalitionStatus = "ACTIVE" | "ARCHIVED";
-
-interface CoalitionRow {
-  id: string;
-  name: string;
-  slug: string;
-  status: CoalitionStatus;
-  updatedAt: string;
-  _count: { campaigns: number };
-}
-
 interface SearchParams {
   status?: string;
   q?: string;
+  cursor?: string;
 }
 
 function fmtDate(iso: string) {
@@ -52,31 +45,40 @@ export default async function CoalitionsPage({
   const enabled = await donationsEnabledForOrg();
   if (!enabled) notFound();
 
-  let coalitions: CoalitionRow[] = [];
+  let page: CoalitionListPage = { items: [], nextCursor: null };
   try {
-    coalitions = await apiFetch<CoalitionRow[]>(
-      `/orgs/${encodeURIComponent(orgId)}/coalitions`,
-    );
+    page = await listCoalitionsAdmin(orgId, {
+      ...(params.cursor ? { cursor: params.cursor } : {}),
+    });
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError && err.status === 404) {
-      coalitions = [];
+      page = { items: [], nextCursor: null };
     } else {
       throw err;
     }
   }
 
-  // Client-side filter by status and q (done after fetch — list is small)
+  // Client-side filter by status and q (applied to the current page)
   const statusFilter = params.status && params.status !== "all" ? params.status : null;
   const qFilter = params.q?.toLowerCase().trim() ?? null;
 
-  const filtered = coalitions.filter((c) => {
+  const filtered = page.items.filter((c: AdminCoalitionRow) => {
     if (statusFilter && c.status !== statusFilter) return false;
     if (qFilter && !c.name.toLowerCase().includes(qFilter)) return false;
     return true;
   });
 
-  const columns: Column<CoalitionRow>[] = [
+  const nextHref = (() => {
+    if (!page.nextCursor) return null;
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.q) qs.set("q", params.q);
+    qs.set("cursor", page.nextCursor);
+    return `/coalitions?${qs.toString()}`;
+  })();
+
+  const columns: Column<AdminCoalitionRow>[] = [
     {
       key: "name",
       header: "Name",
@@ -144,6 +146,13 @@ export default async function CoalitionsPage({
         rows={filtered}
         empty="No coalitions match the current filters."
       />
+      {nextHref && (
+        <div style={{ marginTop: 16 }}>
+          <Link href={nextHref} className="link" style={{ fontSize: 13.5 }}>
+            Next page →
+          </Link>
+        </div>
+      )}
     </>
   );
 }

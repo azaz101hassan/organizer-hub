@@ -14,6 +14,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeClient } from '../billing/stripe.client';
 import { BillingService } from '../billing/billing.service';
+import { paginateById } from '../common/paginate';
+import type { ListDonationsAdminDto } from './dto/list-donations-admin.dto';
 
 interface CreateCheckoutInput {
   userSub: string;
@@ -216,31 +218,35 @@ export class DonationsService {
 
   async listForAdmin(
     organizationId: string,
-    filters: {
-      campaignId?: string;
-      mode?: DonationMode;
-      status?: DonationStatus;
-    },
+    filters: ListDonationsAdminDto = {},
   ) {
-    return this.prisma.donation.findMany({
-      where: {
-        organizationId,
-        ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
-        ...(filters.mode ? { mode: filters.mode } : {}),
-        ...(filters.status ? { status: filters.status } : {}),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: {
-        campaign: {
-          select: {
-            id: true,
-            slug: true,
-            name: true,
-            coalition: { select: { id: true, slug: true, name: true } },
+    return paginateById(
+      (args) =>
+        this.prisma.donation.findMany(
+          args as Parameters<typeof this.prisma.donation.findMany>[0],
+        ),
+      {
+        where: {
+          organizationId,
+          ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+          ...(filters.mode ? { mode: filters.mode } : {}),
+          ...(filters.status ? { status: filters.status } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: {
+          campaign: {
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              coalition: { select: { id: true, slug: true, name: true } },
+            },
           },
         },
+        cursor: filters.cursor,
+        limit: filters.limit,
       },
-    });
+    );
   }
 
   async forceCancelForAdmin(

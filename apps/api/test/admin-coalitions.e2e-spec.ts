@@ -14,6 +14,11 @@ import { campaignFactory, coalitionFactory } from './factories';
 const ADMIN_USER = 'admin-coal-1';
 const ORG_ID = 'org_admin_coal_test';
 
+interface PageBody<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 describe('Admin coalitions API', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -87,14 +92,95 @@ describe('Admin coalitions API', () => {
   });
 
   describe('GET /orgs/:orgId/coalitions', () => {
-    it('returns 200 with a list including the seeded coalition', async () => {
+    it('returns 200 with paginated shape including the seeded coalition', async () => {
       const res = await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/coalitions`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      const ids = (res.body as { id: string }[]).map((c) => c.id);
+      const body = res.body as PageBody<{ id: string }>;
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('nextCursor');
+      expect(Array.isArray(body.items)).toBe(true);
+      const ids = body.items.map((c) => c.id);
       expect(ids).toContain(coalitionId);
+    });
+  });
+
+  describe('pagination', () => {
+    it('default limit 20: 25 coalitions → first page has 20 items + nextCursor', async () => {
+      // Seed 24 additional coalitions (1 already seeded in beforeEach = 25 total)
+      for (let i = 2; i <= 25; i++) {
+        await prisma.coalition.create({
+          data: coalitionFactory({
+            id: `coal_pag_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            slug: `pagination-coalition-${i}`,
+            name: `Pagination Coalition ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions`)
+        .expect(200);
+
+      const page1 = res.body as PageBody<{ id: string }>;
+      expect(page1.items).toHaveLength(20);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Fetch second page using the cursor
+      const res2 = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?cursor=${page1.nextCursor}`)
+        .expect(200);
+
+      const page2 = res2.body as PageBody<{ id: string }>;
+      expect(page2.items).toHaveLength(5);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it('limit=5: returns 5 items and a cursor from 25 coalitions', async () => {
+      for (let i = 2; i <= 25; i++) {
+        await prisma.coalition.create({
+          data: coalitionFactory({
+            id: `coal_lim_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            slug: `limit-coalition-${i}`,
+            name: `Limit Coalition ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?limit=5`)
+        .expect(200);
+
+      const page = res.body as PageBody<{ id: string }>;
+      expect(page.items).toHaveLength(5);
+      expect(page.nextCursor).not.toBeNull();
+    });
+
+    it('limit=101 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?limit=101`)
+        .expect(400);
+    });
+
+    it('limit=0 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?limit=0`)
+        .expect(400);
+    });
+
+    it('malformed cursor (non-existent id) returns 200 with empty items', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?cursor=nonexistent_cursor_id`)
+        .expect(200);
+
+      const page = res.body as PageBody<{ id: string }>;
+      expect(page.items).toHaveLength(0);
+      expect(page.nextCursor).toBeNull();
     });
   });
 
@@ -240,7 +326,9 @@ describe('Admin coalitions API', () => {
         .expect(200);
 
       // Confirm it is now ARCHIVED before restoring.
-      const check = await prisma.coalition.findUnique({ where: { id: coalitionId } });
+      const check = await prisma.coalition.findUnique({
+        where: { id: coalitionId },
+      });
       expect(check?.status).toBe('ARCHIVED');
 
       const res = await request(app.getHttpServer())
@@ -267,7 +355,10 @@ describe('Admin coalitions API', () => {
       });
       await prisma.organizationMember.upsert({
         where: {
-          organizationId_userId: { organizationId: OTHER_ORG, userId: OTHER_USER },
+          organizationId_userId: {
+            organizationId: OTHER_ORG,
+            userId: OTHER_USER,
+          },
         },
         update: {},
         create: {
@@ -296,7 +387,10 @@ describe('Admin coalitions API', () => {
       await prisma.coalition.delete({ where: { id: foreign.id } });
       await prisma.organizationMember.delete({
         where: {
-          organizationId_userId: { organizationId: OTHER_ORG, userId: OTHER_USER },
+          organizationId_userId: {
+            organizationId: OTHER_ORG,
+            userId: OTHER_USER,
+          },
         },
       });
       await prisma.organization.delete({ where: { id: OTHER_ORG } });
