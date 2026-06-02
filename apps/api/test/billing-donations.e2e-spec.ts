@@ -33,7 +33,7 @@ describe('Donations checkout (one-time)', () => {
     await prisma.donation.deleteMany({});
     await prisma.campaign.deleteMany({});
     await prisma.coalition.deleteMany({});
-    await prisma.billingCustomer.deleteMany({ where: { userId: USER } });
+    await prisma.billingCustomer.deleteMany();
     fakeStripe.reset();
     holder.value = USER;
 
@@ -152,6 +152,7 @@ describe('Donation cancel', () => {
     await prisma.donation.deleteMany({});
     await prisma.campaign.deleteMany({});
     await prisma.coalition.deleteMany({});
+    await prisma.billingCustomer.deleteMany();
     fakeStripe.reset();
     holder.value = USER;
 
@@ -276,21 +277,22 @@ describe('GET /donations/mine', () => {
   });
 
   it('returns only the current user\'s donations, newest first', async () => {
-    // Older one-time donation
+    // Explicit createdAt values prevent same-millisecond races; donationFactory
+    // uses Math.random() ids so the orderBy tie-breaker can't recover order.
     await prisma.donation.create({
       data: donationFactory({
         userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
         mode: 'ONE_TIME', cadence: 'ONCE', status: 'COMPLETED',
+        createdAt: new Date('2025-01-01T12:00:00.000Z'),
       }),
     });
-    // Newer recurring donation
     await prisma.donation.create({
       data: donationFactory({
         userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
         mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+        createdAt: new Date('2025-01-02T12:00:00.000Z'),
       }),
     });
-    // Another user's donation — must be filtered out
     await prisma.donation.create({
       data: donationFactory({
         userId: 'user_other', campaignId: 'camp_1', organizationId: 'org_test_donations',

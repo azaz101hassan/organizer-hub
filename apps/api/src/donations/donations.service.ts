@@ -135,7 +135,7 @@ export class DonationsService {
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.status ? { status: input.status } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         campaign: {
           select: {
@@ -204,7 +204,7 @@ export class DonationsService {
         ...(filters.mode ? { mode: filters.mode } : {}),
         ...(filters.status ? { status: filters.status } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         campaign: {
           select: {
