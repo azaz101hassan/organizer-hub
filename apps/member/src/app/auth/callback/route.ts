@@ -43,7 +43,18 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const tokens = (await tokenRes.json()) as TokenResponse;
 
-  const res = NextResponse.redirect(new URL("/", req.url));
+  // Resume the requested destination if the login flow set one; defaults to "/".
+  // The validation in authorize already screened for safe relative paths, but
+  // re-check here so a tampered cookie can't break out to an absolute URL.
+  const requestedNext = req.cookies.get("oh_member_next")?.value ?? null;
+  const safeNext =
+    requestedNext &&
+    requestedNext.startsWith("/") &&
+    !requestedNext.startsWith("//")
+      ? requestedNext
+      : "/";
+
+  const res = NextResponse.redirect(new URL(safeNext, req.url));
   // Phase 1 MVP: stash id_token in an httpOnly cookie. Phase 2 will move to a
   // server-side session store and verify signature against JWKS on each read.
   res.cookies.set("oh_member_session", tokens.id_token, {
@@ -69,5 +80,6 @@ export async function GET(req: NextRequest): Promise<Response> {
   // clean up transient cookies
   res.cookies.delete("oh_member_state");
   res.cookies.delete("oh_member_pkce");
+  res.cookies.delete("oh_member_next");
   return res;
 }

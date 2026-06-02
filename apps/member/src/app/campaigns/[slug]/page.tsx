@@ -98,7 +98,7 @@ export default async function CampaignPage({
     ? rawError.slice(0, 200).replace(/[\r\n\t]+/g, " ")
     : null;
 
-  const action = donateNow.bind(null, data.campaign.slug);
+  const action = donateNow.bind(null, data.campaign.slug, undefined);
 
   return (
     <PublicShell>
