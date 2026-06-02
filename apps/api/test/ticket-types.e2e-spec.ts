@@ -10,6 +10,7 @@ import {
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { FUTURE_EVENT_DATE } from './helpers/dates';
 import { jsonBody } from './helpers/http';
 
 type TicketTypeView = {
@@ -76,7 +77,7 @@ describe('TicketTypes (e2e)', () => {
         organizationId: orgId,
         title: 'Spring Gala',
         slug: 'spring-gala',
-        startsAt: new Date('2026-06-01T18:00:00Z'),
+        startsAt: FUTURE_EVENT_DATE,
         createdBy: 'owner-sub',
       },
     });
@@ -98,7 +99,7 @@ describe('TicketTypes (e2e)', () => {
         organizationId: otherOrgId,
         title: 'Other Gala',
         slug: 'other-gala',
-        startsAt: new Date('2026-06-01T18:00:00Z'),
+        startsAt: FUTURE_EVENT_DATE,
         createdBy: 'other-owner',
       },
     });

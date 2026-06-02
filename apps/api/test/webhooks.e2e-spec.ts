@@ -22,6 +22,10 @@ import {
   FakeStripeWebhookVerifier,
   type FakeStripeSubscription,
 } from './helpers/fake-stripe';
+import {
+  FUTURE_EVENT_DATE,
+  FUTURE_EVENT_DATE_ALT,
+} from './helpers/dates';
 import type { Stripe } from './../src/billing/stripe-types';
 
 const USER = 'user-wh-1';
@@ -349,7 +353,7 @@ describe('Stripe webhooks (e2e)', () => {
           organizationId: org.id,
           title: 'Webhook Event',
           slug: 'webhook-event',
-          startsAt: new Date('2026-06-01T18:00:00Z'),
+          startsAt: FUTURE_EVENT_DATE,
           status: EventStatus.PUBLISHED,
           publishedAt: new Date(),
           createdBy: USER,
@@ -496,7 +500,7 @@ describe('Stripe webhooks (e2e)', () => {
           ).id,
           title: 'Other',
           slug: 'wh-other',
-          startsAt: new Date('2026-06-02T18:00:00Z'),
+          startsAt: FUTURE_EVENT_DATE_ALT,
           status: EventStatus.PUBLISHED,
           publishedAt: new Date(),
           createdBy: USER,

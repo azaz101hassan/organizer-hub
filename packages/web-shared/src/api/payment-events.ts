@@ -15,6 +15,8 @@ export interface ListPaymentEventsParams {
   userEmail?: string;
   from?: string;
   to?: string;
+  campaignId?: string;
+  recurringOnly?: 'true' | 'false';
 }
 
 export function listPaymentEvents(

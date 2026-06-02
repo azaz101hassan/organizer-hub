@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { OrganizationRole, PaymentEventKind, PaymentEventStatus } from '@organizer-hub/db/api';
+import { DonationMode, OrganizationRole, PaymentEventKind, PaymentEventStatus } from '@organizer-hub/db/api';
 import { PrismaService } from './../src/prisma/prisma.service';
 import {
   bootTestApp,
@@ -9,6 +9,7 @@ import {
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
 import { jsonBody } from './helpers/http';
+import { campaignFactory, coalitionFactory, donationFactory } from './factories';
 
 const currentSub = makeSubHolder('user-a');
 
@@ -37,6 +38,10 @@ describe('PaymentEvents (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.paymentEvent.deleteMany();
+    await prisma.donation.deleteMany();
+    await prisma.campaign.deleteMany();
+    await prisma.coalition.deleteMany();
     await prisma.organization.deleteMany({});
     currentSub.value = 'user-a';
 
@@ -82,6 +87,47 @@ describe('PaymentEvents (e2e)', () => {
         currency: 'usd',
       },
     });
+  }
+
+  // Helper to seed a coalition + campaign + donation + DONATION PaymentEvent.
+  // Returns { campaignId, peId } for the seeded chain.
+  async function seedDonationChain(opts: {
+    campaignSlug: string;
+    mode: DonationMode;
+  }): Promise<{ campaignId: string; peId: string }> {
+    const coalition = await prisma.coalition.create({
+      data: coalitionFactory({ organizationId: orgId, slug: `coal-${opts.campaignSlug}` }),
+    });
+    const campaign = await prisma.campaign.create({
+      data: campaignFactory({
+        organizationId: orgId,
+        coalitionId: coalition.id,
+        slug: opts.campaignSlug,
+        name: opts.campaignSlug,
+      }),
+    });
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        organizationId: orgId,
+        userId: 'user-a',
+        campaignId: campaign.id,
+        mode: opts.mode,
+        ...(opts.mode === DonationMode.RECURRING ? { cadence: 'MONTHLY' } : {}),
+        status: 'PENDING',
+      }),
+    });
+    const pe = await prisma.paymentEvent.create({
+      data: {
+        organizationId: orgId,
+        userId: 'user-a',
+        kind: PaymentEventKind.DONATION,
+        status: PaymentEventStatus.SUCCEEDED,
+        amountCents: 1000,
+        currency: 'usd',
+        donationId: donation.id,
+      },
+    });
+    return { campaignId: campaign.id, peId: pe.id };
   }
 
   describe('GET /payment-events (user-scoped)', () => {
@@ -191,6 +237,147 @@ describe('PaymentEvents (e2e)', () => {
       expect(lines[0]).toContain('amountCents');
       // Two PE rows seeded.
       expect(lines.length - 1).toBe(2);
+    });
+
+    it('filters by campaignId — CSV contains only the matching PE row', async () => {
+      currentSub.value = 'admin-sub';
+      const chainA = await seedDonationChain({ campaignSlug: 'csv-camp-a', mode: DonationMode.ONE_TIME });
+      await seedDonationChain({ campaignSlug: 'csv-camp-b', mode: DonationMode.ONE_TIME });
+
+      const res = await request(app.getHttpServer())
+        .get(`/transactions.csv?organizationId=${orgId}&campaignId=${chainA.campaignId}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toMatch(/text\/csv/);
+      const lines = (res.text as string)
+        .split('\n')
+        .filter((l) => l.trim() !== '');
+      // Header + exactly one data row.
+      expect(lines.length - 1).toBe(1);
+      expect(lines[1]).toContain(chainA.peId);
+    });
+  });
+
+  describe('GET /payment-events filtered by donation', () => {
+    let campaignAId: string;
+    let campaignBId: string;
+    let peA: { id: string };
+    let peB: { id: string };
+
+    beforeEach(async () => {
+      // Seed two donation chains using the shared helper
+      const chainA = await seedDonationChain({ campaignSlug: 'campaign-a', mode: DonationMode.ONE_TIME });
+      campaignAId = chainA.campaignId;
+      peA = { id: chainA.peId };
+
+      const chainB = await seedDonationChain({ campaignSlug: 'campaign-b', mode: DonationMode.RECURRING });
+      campaignBId = chainB.campaignId;
+      peB = { id: chainB.peId };
+
+      // Standalone TICKET PE with no donationId
+      await prisma.paymentEvent.create({
+        data: {
+          organizationId: orgId,
+          userId: 'user-a',
+          kind: PaymentEventKind.TICKET,
+          status: PaymentEventStatus.SUCCEEDED,
+          amountCents: 500,
+          currency: 'usd',
+        },
+      });
+    });
+
+    it('filters by campaignId — returns only the PE for that campaign', async () => {
+      currentSub.value = 'admin-sub';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&campaignId=${campaignAId}`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(peA.id);
+    });
+
+    it('filters by recurringOnly=true — returns only the RECURRING donation PE', async () => {
+      currentSub.value = 'admin-sub';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&recurringOnly=true`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(peB.id);
+    });
+
+    it('filters by campaignId + recurringOnly=true — returns the RECURRING campaign PE', async () => {
+      currentSub.value = 'admin-sub';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&campaignId=${campaignBId}&recurringOnly=true`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(peB.id);
+    });
+
+    it('filters by campaignA + recurringOnly=true — returns 0 rows (ONE_TIME mismatch)', async () => {
+      currentSub.value = 'admin-sub';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&campaignId=${campaignAId}&recurringOnly=true`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      expect(body.items).toHaveLength(0);
+    });
+
+    it('recurringOnly=false — no donation filter; returns all PEs including standalone TICKET', async () => {
+      currentSub.value = 'admin-sub';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&recurringOnly=false`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      // peA + peB + standalone TICKET = 3
+      expect(body.items).toHaveLength(3);
+    });
+
+    it('empty campaignId — returns 400', async () => {
+      currentSub.value = 'admin-sub';
+      await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&campaignId=`)
+        .expect(400);
+    });
+
+    it('recurringOnly=maybe — returns 400', async () => {
+      currentSub.value = 'admin-sub';
+      await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&recurringOnly=maybe`)
+        .expect(400);
+    });
+
+    it('unknown field — returns 400 (forbidNonWhitelisted)', async () => {
+      currentSub.value = 'admin-sub';
+      await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&unknownField=x`)
+        .expect(400);
+    });
+
+    it('user-scoped: campaignId filter works without organizationId', async () => {
+      currentSub.value = 'user-a';
+      const res = await request(app.getHttpServer())
+        .get(`/payment-events?campaignId=${campaignAId}`)
+        .expect(200);
+
+      const body = jsonBody<PEListPage>(res);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(peA.id);
+    });
+
+    it('returns 400 when kind is non-DONATION combined with campaignId', async () => {
+      currentSub.value = 'admin-sub';
+      await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&kind=TICKET&campaignId=any-id`)
+        .expect(400);
     });
   });
 });

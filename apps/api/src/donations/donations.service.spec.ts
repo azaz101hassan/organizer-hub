@@ -424,7 +424,7 @@ describe('DonationsService.listForUser', () => {
     await service.listForUser({ userSub: 'user_1', mode: 'ONE_TIME' });
     expect(prisma.donation.findMany).toHaveBeenCalledWith({
       where: { userId: 'user_1', mode: 'ONE_TIME' },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: EXPECTED_INCLUDE,
     });
   });
