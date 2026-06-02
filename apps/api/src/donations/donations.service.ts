@@ -289,6 +289,7 @@ export class DonationsService {
     organizationId: string,
     campaignId: string,
   ): Promise<{ canceled: number; failed: number }> {
+    // stripeSubscriptionId: { not: null } is defense-in-depth against partial data — not an expected case for ACTIVE RECURRING donations.
     const donations = await this.prisma.donation.findMany({
       where: {
         organizationId,
@@ -323,11 +324,17 @@ export class DonationsService {
         canceled++;
       } catch (err) {
         this.logger.error(
-          `Failed to cancel recurring donation ${donation.id} (sub ${donation.stripeSubscriptionId ?? 'none'}) during campaign archive`,
+          `Failed to cancel recurring donation ${donation.id} (sub ${donation.stripeSubscriptionId ?? 'none'}) during campaign archive org=${organizationId} campaign=${campaignId}`,
           err instanceof Error ? err.stack : String(err),
         );
         failed++;
       }
+    }
+
+    if (canceled > 0 || failed > 0) {
+      this.logger.log(
+        `cascade cancel summary: org=${organizationId} campaign=${campaignId} canceled=${canceled} failed=${failed}`,
+      );
     }
 
     return { canceled, failed };

@@ -1240,7 +1240,7 @@ describe('Admin campaigns API', () => {
           where: { id: campaignId },
           data: { status: 'ACTIVE' },
         });
-        await prisma.donation.create({
+        const donIdem = await prisma.donation.create({
           data: donationFactory({
             id: 'don_idem_rec',
             organizationId: ORG_ID,
@@ -1282,6 +1282,13 @@ describe('Admin campaigns API', () => {
           .expect(200);
 
         expect(fakeStripe.callsFor('subscriptions.update')).toHaveLength(1);
+
+        // The cascade DB write must have landed: donation is now CANCELED.
+        const refreshedIdem = await prisma.donation.findUnique({
+          where: { id: donIdem.id },
+        });
+        expect(refreshedIdem?.status).toBe('CANCELED');
+        expect(refreshedIdem?.canceledAt).not.toBeNull();
 
         // Second archive on the same campaign — must return 400 (ARCHIVED → ARCHIVED is illegal)
         await request(app.getHttpServer())
@@ -1388,8 +1395,17 @@ describe('Admin campaigns API', () => {
         const stripeCalls = fakeStripe.callsFor('subscriptions.update');
         expect(stripeCalls).toHaveLength(2);
 
-        void donRaceA; // referenced to suppress unused-var lint
-        void donRaceB;
+        // The cascade DB writes must have landed: both donations are now CANCELED.
+        const refreshedRaceA = await prisma.donation.findUnique({
+          where: { id: donRaceA.id },
+        });
+        const refreshedRaceB = await prisma.donation.findUnique({
+          where: { id: donRaceB.id },
+        });
+        expect(refreshedRaceA?.status).toBe('CANCELED');
+        expect(refreshedRaceA?.canceledAt).not.toBeNull();
+        expect(refreshedRaceB?.status).toBe('CANCELED');
+        expect(refreshedRaceB?.canceledAt).not.toBeNull();
       });
     });
   });
