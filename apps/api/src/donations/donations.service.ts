@@ -290,6 +290,8 @@ export class DonationsService {
     campaignId: string,
   ): Promise<{ canceled: number; failed: number }> {
     // stripeSubscriptionId: { not: null } is defense-in-depth against partial data — not an expected case for ACTIVE RECURRING donations.
+    // The per-donation DB write below uses updateMany guarded on status=ACTIVE,
+    // so a donor self-serve cancel that races this batch keeps its own canceledAt.
     const donations = await this.prisma.donation.findMany({
       where: {
         organizationId,
@@ -316,10 +318,20 @@ export class DonationsService {
 
         // Non-transactional Stripe→DB write: if the DB update fails after
         // Stripe succeeds, the webhook reconciles once the period ends.
-        await this.prisma.donation.update({
-          where: { id: donation.id },
+        //
+        // Guard on status=ACTIVE so a concurrent donor self-serve cancel that
+        // lands between this batch's findMany snapshot and this loop iteration
+        // keeps its original canceledAt timestamp. count===0 means the donation
+        // was already canceled by another path (donor cancel, prior cascade
+        // attempt, webhook); the Stripe call above was idempotent — skip both
+        // counters, there is nothing new to record.
+        const result = await this.prisma.donation.updateMany({
+          where: { id: donation.id, status: DonationStatus.ACTIVE },
           data: { status: DonationStatus.CANCELED, canceledAt: new Date() },
         });
+        if (result.count === 0) {
+          continue;
+        }
 
         canceled++;
       } catch (err) {

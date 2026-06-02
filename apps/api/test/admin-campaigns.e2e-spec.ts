@@ -1386,9 +1386,23 @@ describe('Admin campaigns API', () => {
             .send({ to: 'ARCHIVED' }),
         ]);
 
-        const statuses = [res1.status, res2.status].sort();
-        // One must succeed (200), the other must be rejected (409)
-        expect(statuses).toEqual([200, 409]);
+        const statuses = [res1.status, res2.status].sort((a, b) => a - b);
+        // One must succeed (200), the other must be rejected: 409 from the OCC
+        // check inside the $transaction, or 400 if the event loop serialized so
+        // the second request read the already-ARCHIVED status and hit the
+        // LEGAL_TRANSITIONS guard (ARCHIVED → ARCHIVED is illegal).
+        // Sorted ascending: statuses[0] is 200, statuses[1] is the error code.
+        expect(statuses[0]).toBe(200);
+        expect([400, 409]).toContain(statuses[1]);
+
+        // When the loser received a 409 it must carry the optimistic-concurrency
+        // error string, distinguishing the OCC path from the serialized-400 path.
+        const res409 = [res1, res2].find((r) => r.status === 409);
+        if (res409) {
+          expect(res409.body.message).toMatch(
+            /campaign status changed during transition/,
+          );
+        }
 
         // Only the winner should have cascaded — exactly 2 sub ids were canceled
         // (the winner processed both donations under the campaign).
@@ -1406,6 +1420,169 @@ describe('Admin campaigns API', () => {
         expect(refreshedRaceA?.canceledAt).not.toBeNull();
         expect(refreshedRaceB?.status).toBe('CANCELED');
         expect(refreshedRaceB?.canceledAt).not.toBeNull();
+      });
+
+      it('partial Stripe failure: continues batch and reports counts via logger; failed donation stays ACTIVE', async () => {
+        // Move campaign to ACTIVE so the ARCHIVED transition is legal.
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+
+        // 3 ACTIVE RECURRING donations; sub B will have its Stripe call staged to fail.
+        const donA = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_a',
+            organizationId: ORG_ID,
+            userId: 'user_partial_a',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_a',
+          }),
+        });
+        const donB = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_b',
+            organizationId: ORG_ID,
+            userId: 'user_partial_b',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_b',
+          }),
+        });
+        const donC = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_c',
+            organizationId: ORG_ID,
+            userId: 'user_partial_c',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_c',
+          }),
+        });
+
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_a',
+          customer: 'cus_partial_a',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_a',
+                price: {
+                  id: 'price_partial_a',
+                  lookup_key: null,
+                  product: 'prod_partial_a',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_b',
+          customer: 'cus_partial_b',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_b',
+                price: {
+                  id: 'price_partial_b',
+                  lookup_key: null,
+                  product: 'prod_partial_b',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_c',
+          customer: 'cus_partial_c',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_c',
+                price: {
+                  id: 'price_partial_c',
+                  lookup_key: null,
+                  product: 'prod_partial_c',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+
+        // Stage a Stripe error for sub B — simulates a mid-batch outage.
+        fakeStripe.failNextSubscriptionUpdate(
+          'sub_test_partial_b',
+          new Error('Stripe simulated outage'),
+        );
+
+        // Archive the campaign — must succeed even though sub B will fail.
+        await request(app.getHttpServer())
+          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+          .send({ to: 'ARCHIVED' })
+          .expect(200);
+
+        // All three Stripe calls were attempted (the batch does not abort on error).
+        const stripeCalls = fakeStripe.callsFor('subscriptions.update');
+        expect(stripeCalls).toHaveLength(3);
+
+        // Donations A and C succeeded — status CANCELED, canceledAt set.
+        const refreshedA = await prisma.donation.findUnique({
+          where: { id: donA.id },
+        });
+        const refreshedC = await prisma.donation.findUnique({
+          where: { id: donC.id },
+        });
+        expect(refreshedA?.status).toBe('CANCELED');
+        expect(refreshedA?.canceledAt).not.toBeNull();
+        expect(refreshedC?.status).toBe('CANCELED');
+        expect(refreshedC?.canceledAt).not.toBeNull();
+
+        // Donation B failed at the Stripe call — cascade caught the throw and
+        // did NOT proceed to the DB update, so B remains ACTIVE.
+        const refreshedB = await prisma.donation.findUnique({
+          where: { id: donB.id },
+        });
+        expect(refreshedB?.status).toBe('ACTIVE');
+        expect(refreshedB?.canceledAt).toBeNull();
+
+        // The campaign itself archived successfully despite the partial failure.
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+        });
+        expect(campaign?.status).toBe('ARCHIVED');
+
+        // The admin banner surface (activeRecurringCount from the GET endpoint)
+        // must reflect the 1 residual ACTIVE RECURRING donation so the admin
+        // can see the cascade did not fully complete.
+        const getRes = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+        expect(getRes.body.activeRecurringCount).toBe(1);
       });
     });
   });
