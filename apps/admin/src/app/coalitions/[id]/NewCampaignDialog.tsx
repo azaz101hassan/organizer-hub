@@ -152,6 +152,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
               type="number"
               required
               min={1}
+              max={21474836}
               step="0.01"
               placeholder="e.g. 1000"
               defaultValue={state.values?.target ?? ""}

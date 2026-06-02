@@ -87,7 +87,8 @@ export async function updateCoalition(
     throw err;
   }
 
-  revalidatePath("/coalitions/[id]");
+  revalidatePath(`/coalitions/${id}`);
+  revalidatePath("/coalitions");
   return { ok: true };
 }
 
@@ -118,11 +119,14 @@ export interface CampaignCreateFormState {
   ok?: boolean;
 }
 
+const GOAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
+
 function validateCampaignFields(
   name: string,
   slug: string,
   targetRaw: string,
   coverImageUrl: string | undefined,
+  currency: string | undefined,
 ): { fieldErrors?: CampaignCreateFormState["fieldErrors"]; targetAmountCents?: number } {
   const errors: NonNullable<CampaignCreateFormState["fieldErrors"]> = {};
 
@@ -137,13 +141,20 @@ function validateCampaignFields(
   }
 
   let targetAmountCents: number | undefined;
-  const targetFloat = parseFloat(targetRaw);
-  if (!targetRaw || !Number.isFinite(targetFloat) || targetFloat <= 0) {
-    errors.target = "Goal is required and must be a positive number.";
+  if (!targetRaw) {
+    errors.target = "Goal in USD is required.";
+  } else if (!GOAL_PATTERN.test(targetRaw)) {
+    errors.target =
+      "Goal must be a number with up to 2 decimal places (e.g. 100 or 100.50).";
   } else {
-    targetAmountCents = Math.round(targetFloat * 100);
-    if (targetAmountCents < 100) {
-      errors.target = "Goal must be at least $1.00.";
+    const [whole, fraction = ""] = targetRaw.split(".");
+    const cents = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
+    if (cents < 100) {
+      errors.target = "Goal must be at least $1.";
+    } else if (cents > 2_147_483_647) {
+      errors.target = "Goal may not exceed $21,474,836.47.";
+    } else {
+      targetAmountCents = cents;
     }
   }
 
@@ -153,6 +164,10 @@ function validateCampaignFields(
     !/^(https?:\/\/|\/)/.test(coverImageUrl)
   ) {
     errors.coverImageUrl = "Cover image URL must start with https://, http://, or /.";
+  }
+
+  if (currency && !/^[a-z]{3}$/.test(currency)) {
+    errors.currency = "Currency must be 3 lowercase letters (e.g. usd).";
   }
 
   if (Object.keys(errors).length > 0) {
@@ -195,6 +210,7 @@ export async function createCampaign(
     slug,
     targetRaw,
     coverImageUrl,
+    currencyRaw || undefined,
   );
   if (fieldErrors) {
     return { fieldErrors, values: preserved };
@@ -227,6 +243,6 @@ export async function createCampaign(
     throw err;
   }
 
-  revalidatePath("/coalitions/[id]");
+  revalidatePath(`/coalitions/${coalitionId}`);
   return { ok: true };
 }
