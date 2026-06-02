@@ -15,7 +15,7 @@ export interface DonatePanelProps {
   defaultCurrency: string;
   defaultCadence?: DonationCadence;
   defaultAmountCents?: number;
-  action: string;
+  action: string | ((formData: FormData) => void | Promise<void>);
   disabled?: boolean;
   disabledReason?: string;
 }
