@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
   DonationCadence,
@@ -194,6 +194,12 @@ describe('PaymentEventsReadService', () => {
     const result = await service.listForUser('user_a', { recurringOnly: 'true' });
     expect(result.items).toHaveLength(1);
     expect(result.items[0].id).toBe(peRecurring.id);
+  });
+
+  it('listForUser throws BadRequestException when kind is non-DONATION combined with campaignId', async () => {
+    await expect(
+      service.listForUser('user_a', { kind: PaymentEventKind.TICKET, campaignId: 'any' }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('listForUser paginates with cursor', async () => {

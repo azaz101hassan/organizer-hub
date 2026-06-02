@@ -1,11 +1,13 @@
 import {
   Injectable,
+  BadRequestException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import {
   DonationMode,
   OrganizationRole,
+  PaymentEventKind,
   Prisma,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
@@ -96,6 +98,15 @@ export class PaymentEventsReadService {
     where: Prisma.PaymentEventWhereInput,
     q: Pick<QueryPaymentEventsDto, 'kind' | 'status' | 'from' | 'to' | 'campaignId' | 'recurringOnly'>,
   ): void {
+    if (
+      (q.campaignId || q.recurringOnly === 'true') &&
+      q.kind &&
+      q.kind !== PaymentEventKind.DONATION
+    ) {
+      throw new BadRequestException(
+        'campaignId and recurringOnly filters are only valid with kind=DONATION',
+      );
+    }
     if (q.kind) where.kind = q.kind;
     if (q.status) where.status = q.status;
     if (q.from || q.to) {

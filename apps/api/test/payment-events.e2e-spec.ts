@@ -38,6 +38,10 @@ describe('PaymentEvents (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.paymentEvent.deleteMany();
+    await prisma.donation.deleteMany();
+    await prisma.campaign.deleteMany();
+    await prisma.coalition.deleteMany();
     await prisma.organization.deleteMany({});
     currentSub.value = 'user-a';
 
@@ -83,6 +87,47 @@ describe('PaymentEvents (e2e)', () => {
         currency: 'usd',
       },
     });
+  }
+
+  // Helper to seed a coalition + campaign + donation + DONATION PaymentEvent.
+  // Returns { campaignId, peId } for the seeded chain.
+  async function seedDonationChain(opts: {
+    campaignSlug: string;
+    mode: DonationMode;
+  }): Promise<{ campaignId: string; peId: string }> {
+    const coalition = await prisma.coalition.create({
+      data: coalitionFactory({ organizationId: orgId, slug: `coal-${opts.campaignSlug}` }),
+    });
+    const campaign = await prisma.campaign.create({
+      data: campaignFactory({
+        organizationId: orgId,
+        coalitionId: coalition.id,
+        slug: opts.campaignSlug,
+        name: opts.campaignSlug,
+      }),
+    });
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        organizationId: orgId,
+        userId: 'user-a',
+        campaignId: campaign.id,
+        mode: opts.mode,
+        ...(opts.mode === DonationMode.RECURRING ? { cadence: 'MONTHLY' } : {}),
+        status: 'PENDING',
+      }),
+    });
+    const pe = await prisma.paymentEvent.create({
+      data: {
+        organizationId: orgId,
+        userId: 'user-a',
+        kind: PaymentEventKind.DONATION,
+        status: PaymentEventStatus.SUCCEEDED,
+        amountCents: 1000,
+        currency: 'usd',
+        donationId: donation.id,
+      },
+    });
+    return { campaignId: campaign.id, peId: pe.id };
   }
 
   describe('GET /payment-events (user-scoped)', () => {
@@ -193,6 +238,24 @@ describe('PaymentEvents (e2e)', () => {
       // Two PE rows seeded.
       expect(lines.length - 1).toBe(2);
     });
+
+    it('filters by campaignId — CSV contains only the matching PE row', async () => {
+      currentSub.value = 'admin-sub';
+      const chainA = await seedDonationChain({ campaignSlug: 'csv-camp-a', mode: DonationMode.ONE_TIME });
+      await seedDonationChain({ campaignSlug: 'csv-camp-b', mode: DonationMode.ONE_TIME });
+
+      const res = await request(app.getHttpServer())
+        .get(`/transactions.csv?organizationId=${orgId}&campaignId=${chainA.campaignId}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toMatch(/text\/csv/);
+      const lines = (res.text as string)
+        .split('\n')
+        .filter((l) => l.trim() !== '');
+      // Header + exactly one data row.
+      expect(lines.length - 1).toBe(1);
+      expect(lines[1]).toContain(chainA.peId);
+    });
   });
 
   describe('GET /payment-events filtered by donation', () => {
@@ -202,78 +265,14 @@ describe('PaymentEvents (e2e)', () => {
     let peB: { id: string };
 
     beforeEach(async () => {
-      // Seed a coalition and two campaigns under the existing org
-      const coalition = await prisma.coalition.create({
-        data: coalitionFactory({ organizationId: orgId, slug: 'coal-pe-filter' }),
-      });
+      // Seed two donation chains using the shared helper
+      const chainA = await seedDonationChain({ campaignSlug: 'campaign-a', mode: DonationMode.ONE_TIME });
+      campaignAId = chainA.campaignId;
+      peA = { id: chainA.peId };
 
-      const campA = await prisma.campaign.create({
-        data: campaignFactory({
-          organizationId: orgId,
-          coalitionId: coalition.id,
-          slug: 'campaign-a',
-          name: 'Campaign A',
-        }),
-      });
-      campaignAId = campA.id;
-
-      const campB = await prisma.campaign.create({
-        data: campaignFactory({
-          organizationId: orgId,
-          coalitionId: coalition.id,
-          slug: 'campaign-b',
-          name: 'Campaign B',
-        }),
-      });
-      campaignBId = campB.id;
-
-      // Donation A: ONE_TIME for campaignA
-      const donationA = await prisma.donation.create({
-        data: donationFactory({
-          organizationId: orgId,
-          userId: 'user-a',
-          campaignId: campaignAId,
-          mode: DonationMode.ONE_TIME,
-          status: 'PENDING',
-        }),
-      });
-
-      // Donation B: RECURRING for campaignB
-      const donationB = await prisma.donation.create({
-        data: donationFactory({
-          organizationId: orgId,
-          userId: 'user-a',
-          campaignId: campaignBId,
-          mode: DonationMode.RECURRING,
-          cadence: 'MONTHLY',
-          status: 'PENDING',
-        }),
-      });
-
-      // PaymentEvent for each donation
-      peA = await prisma.paymentEvent.create({
-        data: {
-          organizationId: orgId,
-          userId: 'user-a',
-          kind: PaymentEventKind.DONATION,
-          status: PaymentEventStatus.SUCCEEDED,
-          amountCents: 1000,
-          currency: 'usd',
-          donationId: donationA.id,
-        },
-      });
-
-      peB = await prisma.paymentEvent.create({
-        data: {
-          organizationId: orgId,
-          userId: 'user-a',
-          kind: PaymentEventKind.DONATION,
-          status: PaymentEventStatus.SUCCEEDED,
-          amountCents: 2000,
-          currency: 'usd',
-          donationId: donationB.id,
-        },
-      });
+      const chainB = await seedDonationChain({ campaignSlug: 'campaign-b', mode: DonationMode.RECURRING });
+      campaignBId = chainB.campaignId;
+      peB = { id: chainB.peId };
 
       // Standalone TICKET PE with no donationId
       await prisma.paymentEvent.create({
