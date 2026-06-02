@@ -438,7 +438,7 @@ model PaymentEvent {
   membershipId             String?             @map("membership_id")
   refundsPaymentIntentId   String?             @map("refunds_payment_intent_id")
   donationId               String?             @map("donation_id")
-  donation                 Donation?           @relation(fields: [donationId], references: [id])
+  donation                 Donation?           @relation(fields: [donationId], references: [id], onDelete: SetNull)
 
   failureReason            String?             @map("failure_reason")
   succeededAt              DateTime?           @map("succeeded_at")
