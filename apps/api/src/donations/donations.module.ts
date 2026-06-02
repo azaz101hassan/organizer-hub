@@ -31,6 +31,7 @@ export class DonationsModule implements NestModule {
         { path: 'billing/checkout/donation', method: RequestMethod.POST },
         { path: 'billing/donation/:id/cancel', method: RequestMethod.POST },
         { path: 'donations/mine', method: RequestMethod.GET },
+        { path: 'donations/by-session/:id', method: RequestMethod.GET },
         { path: 'coalitions', method: RequestMethod.GET },
         { path: 'coalitions/:slug', method: RequestMethod.GET },
         { path: 'campaigns/:slug', method: RequestMethod.GET },

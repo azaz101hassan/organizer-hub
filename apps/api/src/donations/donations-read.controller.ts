@@ -2,13 +2,14 @@ import {
   BadRequestException,
   Controller,
   Get,
+  Param,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { DonationsService } from './donations.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { DonationsFeatureFlagGuard } from './donations-feature-flag.guard';
 
 const VALID_MODES = ['ONE_TIME', 'RECURRING'] as const;
@@ -20,11 +21,18 @@ export class DonationsReadController {
   constructor(private readonly donations: DonationsService) {}
 
   @Get('mine')
-  mine(@Req() req: Request, @Query('mode') mode?: string) {
+  mine(@CurrentUser() user: AuthenticatedUser, @Query('mode') mode?: string) {
     if (mode !== undefined && !VALID_MODES.includes(mode as Mode)) {
       throw new BadRequestException('mode must be ONE_TIME or RECURRING');
     }
-    const user = (req as any).user as { sub: string };
     return this.donations.listForUser({ userSub: user.sub, mode: mode as Mode | undefined });
+  }
+
+  @Get('by-session/:id')
+  bySession(@CurrentUser() user: AuthenticatedUser, @Param('id') sessionId: string) {
+    if (sessionId.length === 0 || sessionId.length > 256) {
+      throw new BadRequestException('invalid session id');
+    }
+    return this.donations.findBySession({ userSub: user.sub, sessionId });
   }
 }

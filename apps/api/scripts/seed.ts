@@ -7,7 +7,7 @@ import path from 'node:path';
 config({ path: path.resolve(__dirname, '../../../.env') });
 config({ path: path.resolve(__dirname, '../.env.local'), override: false });
 
-import { PrismaClient } from '@organizer-hub/db/api';
+import { PrismaClient, CoalitionStatus, CampaignStatus } from '@organizer-hub/db/api';
 
 // Deterministic id so apps/admin/.env.local can reference this row directly
 // once Phase E lands. Prisma accepts explicit values for @id @default(cuid())
@@ -51,6 +51,41 @@ async function main(): Promise<void> {
       });
       console.log(`  - label: ${label.slug} (${label.name})`);
     }
+
+    const generalCoalition = await prisma.coalition.upsert({
+      where: { organizationId_slug: { organizationId: HOUSE_ORG_ID, slug: 'general' } },
+      update: { name: 'General', status: CoalitionStatus.ACTIVE },
+      create: {
+        organizationId: HOUSE_ORG_ID,
+        slug: 'general',
+        name: 'General',
+        description: 'Year-round support for our work.',
+        status: CoalitionStatus.ACTIVE,
+        displayOrder: 0,
+      },
+    });
+    console.log(`  - coalition: ${generalCoalition.slug} (${generalCoalition.name})`);
+
+    const generalFund = await prisma.campaign.upsert({
+      where: { organizationId_slug: { organizationId: HOUSE_ORG_ID, slug: 'general-fund' } },
+      update: {
+        name: 'General fund',
+        status: CampaignStatus.ACTIVE,
+        coalitionId: generalCoalition.id,
+      },
+      create: {
+        organizationId: HOUSE_ORG_ID,
+        coalitionId: generalCoalition.id,
+        slug: 'general-fund',
+        name: 'General fund',
+        description: 'Support everything we do.',
+        targetAmountCents: 1_000_000,
+        currency: 'usd',
+        status: CampaignStatus.ACTIVE,
+        displayOrder: 0,
+      },
+    });
+    console.log(`  - campaign: ${generalFund.slug} (${generalFund.name})`);
 
     console.log(`\nHOUSE_ORG_ID=${HOUSE_ORG_ID}`);
     console.log('Add this to apps/admin/.env.local in Phase E.');

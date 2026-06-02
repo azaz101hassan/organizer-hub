@@ -174,6 +174,19 @@ export class DonationsService {
     return { status: 'canceled' };
   }
 
+  async findBySession(input: { userSub: string; sessionId: string }) {
+    const donation = await this.prisma.donation.findFirst({
+      where: { stripeCheckoutSessionId: input.sessionId, userId: input.userSub },
+      include: { campaign: { select: { slug: true } } },
+    });
+    if (!donation) throw new NotFoundException();
+    return {
+      donationId: donation.id,
+      mode: donation.mode,
+      campaignSlug: donation.campaign.slug,
+    };
+  }
+
   private deriveMode(cadence: DonationCadence): DonationMode {
     return this.recurringFor(cadence) === null
       ? DonationMode.ONE_TIME
