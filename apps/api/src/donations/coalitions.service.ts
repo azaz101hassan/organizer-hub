@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -163,5 +167,121 @@ export class CoalitionsService {
       },
       campaigns: summaries,
     };
+  }
+
+  // ── Admin methods ────────────────────────────────────────────────────────────
+
+  async listAllForAdmin(organizationId: string) {
+    return this.prisma.coalition.findMany({
+      where: { organizationId },
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { campaigns: true } } },
+    });
+  }
+
+  async getForAdmin(organizationId: string, id: string) {
+    const existing = await this.prisma.coalition.findUnique({
+      where: { id },
+      include: { _count: { select: { campaigns: true } } },
+    });
+    if (!existing || existing.organizationId !== organizationId) {
+      throw new NotFoundException();
+    }
+    return existing;
+  }
+
+  async createForAdmin(
+    organizationId: string,
+    data: {
+      name: string;
+      slug: string;
+      description?: string;
+      coverImageUrl?: string;
+      status?: 'ACTIVE';
+      displayOrder?: number;
+    },
+  ) {
+    try {
+      return await this.prisma.coalition.create({
+        data: {
+          organizationId,
+          name: data.name,
+          slug: data.slug,
+          description: data.description ?? null,
+          coverImageUrl: data.coverImageUrl ?? null,
+          status: data.status ?? 'ACTIVE',
+          displayOrder: data.displayOrder ?? 0,
+        },
+        include: { _count: { select: { campaigns: true } } },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('a coalition with that slug already exists');
+      }
+      throw err;
+    }
+  }
+
+  async updateForAdmin(
+    organizationId: string,
+    id: string,
+    data: {
+      name?: string;
+      slug?: string;
+      description?: string;
+      coverImageUrl?: string;
+      displayOrder?: number;
+    },
+  ) {
+    const existing = await this.prisma.coalition.findUnique({ where: { id } });
+    if (!existing || existing.organizationId !== organizationId) {
+      throw new NotFoundException();
+    }
+    try {
+      return await this.prisma.coalition.update({
+        where: { id },
+        data,
+        include: { _count: { select: { campaigns: true } } },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('a coalition with that slug already exists');
+      }
+      throw err;
+    }
+  }
+
+  // Archive blocks ONLY on ACTIVE child campaigns. DRAFT and COMPLETE campaigns
+  // are intentionally allowed to persist under an ARCHIVED parent — DRAFTs are
+  // admin-only and never reach donors; COMPLETE campaigns are historical and
+  // already absent from donor surfaces (the public list filters status=ACTIVE).
+  // The read and the write run in a transaction so a concurrent campaign
+  // activation can't slip past the check.
+  async archiveForAdmin(organizationId: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.coalition.findUnique({
+        where: { id },
+        include: { _count: { select: { campaigns: { where: { status: 'ACTIVE' } } } } },
+      });
+      if (!existing || existing.organizationId !== organizationId) {
+        throw new NotFoundException();
+      }
+      if (existing._count.campaigns > 0) {
+        throw new ConflictException(
+          'coalition has active campaigns — archive or complete them first',
+        );
+      }
+      return tx.coalition.update({
+        where: { id },
+        data: { status: 'ARCHIVED' },
+        include: { _count: { select: { campaigns: true } } },
+      });
+    });
   }
 }
