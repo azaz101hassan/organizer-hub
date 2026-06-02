@@ -187,6 +187,72 @@ export class DonationsService {
     };
   }
 
+  // ── Admin methods ────────────────────────────────────────────────────────────
+
+  async listForAdmin(
+    organizationId: string,
+    filters: { campaignId?: string; mode?: DonationMode; status?: DonationStatus },
+  ) {
+    return this.prisma.donation.findMany({
+      where: {
+        organizationId,
+        ...(filters.campaignId ? { campaignId: filters.campaignId } : {}),
+        ...(filters.mode ? { mode: filters.mode } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        campaign: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            coalition: { select: { id: true, slug: true, name: true } },
+          },
+        },
+      },
+    });
+  }
+
+  async forceCancelForAdmin(
+    organizationId: string,
+    id: string,
+  ): Promise<{ status: 'canceled' }> {
+    const donation = await this.prisma.donation.findUnique({ where: { id } });
+    if (!donation || donation.organizationId !== organizationId) {
+      throw new NotFoundException();
+    }
+    if (donation.status !== DonationStatus.ACTIVE) {
+      throw new ConflictException('donation is not active');
+    }
+    if (donation.mode !== DonationMode.RECURRING) {
+      throw new ConflictException('donation is not recurring');
+    }
+    // A RECURRING donation that reaches ACTIVE should always carry a
+    // subscription id; if it doesn't, the Stripe handoff never completed
+    // and there is nothing to cancel. Distinguish from "not recurring" so
+    // the admin sees the precise cause.
+    if (!donation.stripeSubscriptionId) {
+      throw new ConflictException('donation has no stripe subscription');
+    }
+
+    // Cancel-at-period-end: the current paid period stays paid, no new
+    // invoice generated. Mirrors the donor self-serve cancel.
+    await this.stripeClient.stripe.subscriptions.update(donation.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    // Non-transactional Stripe→DB write: if the DB update fails after
+    // Stripe succeeds, the customer.subscription.deleted webhook reconciles
+    // once the period ends. Same window as the donor cancel path.
+    await this.prisma.donation.update({
+      where: { id: donation.id },
+      data: { status: DonationStatus.CANCELED, canceledAt: new Date() },
+    });
+
+    return { status: 'canceled' };
+  }
+
   private deriveMode(cadence: DonationCadence): DonationMode {
     return this.recurringFor(cadence) === null
       ? DonationMode.ONE_TIME

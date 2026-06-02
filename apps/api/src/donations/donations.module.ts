@@ -9,6 +9,7 @@ import { CoalitionsController } from './coalitions.controller';
 import { CoalitionsService } from './coalitions.service';
 import { AdminCoalitionsController } from './admin-coalitions.controller';
 import { AdminCampaignsController } from './admin-campaigns.controller';
+import { AdminDonationsController } from './admin-donations.controller';
 import { CampaignsController } from './campaigns.controller';
 import { CampaignsService } from './campaigns.service';
 
@@ -16,8 +17,23 @@ import { CampaignsService } from './campaigns.service';
 // (PrismaService, StripeClient, BillingService) are available without
 // an explicit import here.
 @Module({
-  controllers: [DonationsController, DonationManagementController, DonationsReadController, CoalitionsController, AdminCoalitionsController, CampaignsController, AdminCampaignsController],
-  providers: [DonationsService, DonationsFeatureFlagGuard, DonationsOrgResolverMiddleware, CoalitionsService, CampaignsService],
+  controllers: [
+    DonationsController,
+    DonationManagementController,
+    DonationsReadController,
+    CoalitionsController,
+    AdminCoalitionsController,
+    CampaignsController,
+    AdminCampaignsController,
+    AdminDonationsController,
+  ],
+  providers: [
+    DonationsService,
+    DonationsFeatureFlagGuard,
+    DonationsOrgResolverMiddleware,
+    CoalitionsService,
+    CampaignsService,
+  ],
   exports: [DonationsService, DonationsFeatureFlagGuard, CampaignsService],
 })
 export class DonationsModule implements NestModule {
