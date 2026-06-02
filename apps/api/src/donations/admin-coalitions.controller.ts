@@ -61,4 +61,11 @@ export class AdminCoalitionsController {
   archive(@Param('orgId') orgId: string, @Param('id') id: string) {
     return this.coalitions.archiveForAdmin(orgId, id);
   }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  restore(@Param('orgId') orgId: string, @Param('id') id: string) {
+    return this.coalitions.restoreForAdmin(orgId, id);
+  }
 }

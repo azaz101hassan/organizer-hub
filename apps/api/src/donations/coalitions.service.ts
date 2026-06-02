@@ -219,7 +219,9 @@ export class CoalitionsService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        throw new ConflictException('a coalition with that slug already exists');
+        throw new ConflictException(
+          'a coalition with that slug already exists',
+        );
       }
       throw err;
     }
@@ -251,7 +253,9 @@ export class CoalitionsService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        throw new ConflictException('a coalition with that slug already exists');
+        throw new ConflictException(
+          'a coalition with that slug already exists',
+        );
       }
       throw err;
     }
@@ -267,7 +271,9 @@ export class CoalitionsService {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.coalition.findUnique({
         where: { id },
-        include: { _count: { select: { campaigns: { where: { status: 'ACTIVE' } } } } },
+        include: {
+          _count: { select: { campaigns: { where: { status: 'ACTIVE' } } } },
+        },
       });
       if (!existing || existing.organizationId !== organizationId) {
         throw new NotFoundException();
@@ -280,6 +286,34 @@ export class CoalitionsService {
       return tx.coalition.update({
         where: { id },
         data: { status: 'ARCHIVED' },
+        include: { _count: { select: { campaigns: true } } },
+      });
+    });
+  }
+
+  // Flips an ARCHIVED coalition back to ACTIVE. Rejects with 409 when the
+  // coalition is not currently ARCHIVED (e.g. already ACTIVE or a concurrent
+  // restore raced ahead). Child campaigns are NOT touched — admins re-activate
+  // them individually via the campaign transition surface (see
+  // CampaignsService.transition). This matches the asymmetry in archiveForAdmin,
+  // which also does not reach into child campaigns.
+  async restoreForAdmin(organizationId: string, id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.coalition.findUnique({ where: { id } });
+      if (!existing || existing.organizationId !== organizationId) {
+        throw new NotFoundException();
+      }
+      // Optimistic concurrency: only flip if still ARCHIVED at write time.
+      // Mirrors campaigns.service.ts transition's count===0 -> 409 pattern.
+      const result = await tx.coalition.updateMany({
+        where: { id, status: 'ARCHIVED' },
+        data: { status: 'ACTIVE' },
+      });
+      if (result.count === 0) {
+        throw new ConflictException('coalition is not archived');
+      }
+      return tx.coalition.findUnique({
+        where: { id },
         include: { _count: { select: { campaigns: true } } },
       });
     });

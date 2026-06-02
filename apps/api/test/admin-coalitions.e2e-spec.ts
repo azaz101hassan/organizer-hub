@@ -31,7 +31,9 @@ describe('Admin coalitions API', () => {
     await prisma.donation.deleteMany({});
     await prisma.campaign.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.coalition.deleteMany({ where: { organizationId: ORG_ID } });
-    await prisma.organizationMember.deleteMany({ where: { organizationId: ORG_ID } });
+    await prisma.organizationMember.deleteMany({
+      where: { organizationId: ORG_ID },
+    });
 
     holder.value = ADMIN_USER;
 
@@ -49,7 +51,11 @@ describe('Admin coalitions API', () => {
 
     // Bind test user as OWNER so RolesGuard passes
     await prisma.organizationMember.create({
-      data: { organizationId: ORG_ID, userId: ADMIN_USER, role: OrganizationRole.OWNER },
+      data: {
+        organizationId: ORG_ID,
+        userId: ADMIN_USER,
+        role: OrganizationRole.OWNER,
+      },
     });
 
     const coalition = await prisma.coalition.create({
@@ -156,7 +162,10 @@ describe('Admin coalitions API', () => {
         .send({ name: 'Renamed Coalition', displayOrder: 2 })
         .expect(200);
 
-      expect(res.body).toMatchObject({ name: 'Renamed Coalition', displayOrder: 2 });
+      expect(res.body).toMatchObject({
+        name: 'Renamed Coalition',
+        displayOrder: 2,
+      });
     });
 
     it('returns 400 when status is sent (status must go via archive route)', async () => {
@@ -210,6 +219,93 @@ describe('Admin coalitions API', () => {
         .expect(200);
 
       expect(res.body).toMatchObject({ id: coalitionId, status: 'ARCHIVED' });
+    });
+  });
+
+  describe('POST /orgs/:orgId/coalitions/:id/restore', () => {
+    it('returns 409 when the coalition is not archived (still ACTIVE)', async () => {
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${coalitionId}/restore`)
+        .expect(409);
+    });
+
+    it('returns 200 with status=ACTIVE after restoring an archived coalition', async () => {
+      // Archive the blocking campaign first, then archive the coalition.
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'ARCHIVED' },
+      });
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${coalitionId}/archive`)
+        .expect(200);
+
+      // Confirm it is now ARCHIVED before restoring.
+      const check = await prisma.coalition.findUnique({ where: { id: coalitionId } });
+      expect(check?.status).toBe('ARCHIVED');
+
+      const res = await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${coalitionId}/restore`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ id: coalitionId, status: 'ACTIVE' });
+    });
+
+    it('returns 404 for a cross-org coalition id (IDOR guard)', async () => {
+      const OTHER_ORG = 'org_restore_idor';
+      const OTHER_USER = 'restore-idor-user';
+
+      await prisma.organization.upsert({
+        where: { id: OTHER_ORG },
+        update: { donationsEnabled: true },
+        create: {
+          id: OTHER_ORG,
+          name: 'Restore IDOR Org',
+          slug: 'restore-idor-org',
+          createdBy: 'seed',
+          donationsEnabled: true,
+        },
+      });
+      await prisma.organizationMember.upsert({
+        where: {
+          organizationId_userId: { organizationId: OTHER_ORG, userId: OTHER_USER },
+        },
+        update: {},
+        create: {
+          organizationId: OTHER_ORG,
+          userId: OTHER_USER,
+          role: OrganizationRole.OWNER,
+        },
+      });
+      const foreign = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_restore_foreign',
+          organizationId: OTHER_ORG,
+          slug: 'restore-foreign-coalition',
+          name: 'Restore Foreign Coalition',
+          status: 'ARCHIVED',
+        }),
+      });
+
+      // ADMIN_USER is OWNER of ORG_ID but NOT of OTHER_ORG. Pointing the URL at
+      // ORG_ID but the coalition id at the foreign row must return 404.
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${foreign.id}/restore`)
+        .expect(404);
+
+      // Cleanup
+      await prisma.coalition.delete({ where: { id: foreign.id } });
+      await prisma.organizationMember.delete({
+        where: {
+          organizationId_userId: { organizationId: OTHER_ORG, userId: OTHER_USER },
+        },
+      });
+      await prisma.organization.delete({ where: { id: OTHER_ORG } });
+    });
+
+    it('returns 404 for an unknown coalition id', async () => {
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/nonexistent_coalition_id/restore`)
+        .expect(404);
     });
   });
 
