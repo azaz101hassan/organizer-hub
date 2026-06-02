@@ -30,15 +30,15 @@ interface CampaignDetail {
     name: string;
     description: string | null;
     coverImageUrl: string | null;
-    status: string;
     targetAmountCents: number;
+    currency: string;
+    deadline: string | null;
+    status: "ACTIVE" | "COMPLETE";
     raisedCents: number;
     donorCount: number;
-    deadline: string | null;
-    coalitionSlug: string | null;
-    coalitionName: string | null;
-    defaultCurrency: string;
+    recentGiftCount: number;
   };
+  coalition: { id: string; slug: string; name: string };
 }
 
 const donationsEnabled = cache(donationsEnabledForOrgRaw);
@@ -92,24 +92,6 @@ export default async function CampaignPage({
   return (
     <PublicShell>
       <div className="container" style={{ paddingTop: 48, paddingBottom: 72 }}>
-        {data.campaign.coalitionSlug && data.campaign.coalitionName ? (
-          <Eyebrow>
-            <Link href={`/coalitions/${data.campaign.coalitionSlug}`}>
-              {data.campaign.coalitionName}
-            </Link>
-          </Eyebrow>
-        ) : (
-          <Eyebrow>Campaign</Eyebrow>
-        )}
-        <Display as="h1" size="xl" style={{ margin: "10px 0 14px" }}>
-          {data.campaign.name}
-        </Display>
-        {data.campaign.description ? (
-          <Lede style={{ marginBottom: 36 }}>{data.campaign.description}</Lede>
-        ) : (
-          <div style={{ marginBottom: 36 }} />
-        )}
-
         <div
           style={{
             display: "grid",
@@ -126,7 +108,23 @@ export default async function CampaignPage({
                 style={{ marginBottom: 24, width: "100%", borderRadius: 8 }}
               />
             ) : null}
+            <Eyebrow>
+              <Link href={`/coalitions/${data.coalition.slug}`}>{data.coalition.name}</Link>
+            </Eyebrow>
+            <Display as="h1" size="xl" style={{ margin: "10px 0 14px" }}>
+              {data.campaign.name}
+            </Display>
+            {data.campaign.description ? (
+              <Lede style={{ marginBottom: 24 }}>{data.campaign.description}</Lede>
+            ) : null}
+            {data.campaign.recentGiftCount > 0 && (
+              <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
+                {data.campaign.recentGiftCount} gift{data.campaign.recentGiftCount === 1 ? "" : "s"} in the last 30 days.
+              </p>
+            )}
+          </article>
 
+          <aside>
             <Card padded>
               <ProgressBar
                 valueCents={safeRaised}
@@ -150,25 +148,26 @@ export default async function CampaignPage({
                 )}
               </div>
             </Card>
-          </article>
 
-          <aside>
             {sp.error ? (
-              <p role="alert" style={{ marginBottom: 16, color: "var(--bad)" }}>
+              <p role="alert" style={{ marginTop: 16, marginBottom: 0, color: "var(--bad)" }}>
                 {sp.error}
               </p>
             ) : null}
-            <DonatePanel
-              campaignId={data.campaign.id}
-              defaultCurrency={data.campaign.defaultCurrency}
-              defaultCadence={defaultCadence}
-              defaultAmountCents={defaultAmountCents}
-              action={action}
-              disabled={isClosed}
-              disabledReason={
-                isClosed ? "This campaign is no longer accepting donations." : undefined
-              }
-            />
+
+            <div style={{ marginTop: 16 }}>
+              <DonatePanel
+                campaignId={data.campaign.id}
+                defaultCurrency={data.campaign.currency}
+                defaultCadence={defaultCadence}
+                defaultAmountCents={defaultAmountCents}
+                action={action}
+                disabled={isClosed}
+                disabledReason={
+                  isClosed ? "This campaign is no longer accepting donations." : undefined
+                }
+              />
+            </div>
           </aside>
         </div>
       </div>
@@ -197,6 +196,7 @@ export async function generateMetadata({
           ? [data.campaign.coverImageUrl]
           : undefined,
       },
+      twitter: { card: "summary_large_image" },
     };
   } catch {
     return { title: "Campaign" };
