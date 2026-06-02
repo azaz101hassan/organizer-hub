@@ -66,10 +66,14 @@ export default async function CampaignPage({
   }
 
   const nowMs = new Date().valueOf();
+  const deadlineMs = data.campaign.deadline
+    ? new Date(data.campaign.deadline).getTime()
+    : null;
+  const validDeadlineMs =
+    deadlineMs !== null && Number.isFinite(deadlineMs) ? deadlineMs : null;
   const isClosed =
     data.campaign.status === "COMPLETE" ||
-    (data.campaign.deadline !== null &&
-      new Date(data.campaign.deadline).getTime() < nowMs);
+    (validDeadlineMs !== null && validDeadlineMs < nowMs);
 
   const safeRaised = Number.isFinite(data.campaign.raisedCents)
     ? data.campaign.raisedCents
@@ -78,34 +82,40 @@ export default async function CampaignPage({
     ? data.campaign.targetAmountCents
     : 0;
 
-  const rawCadence = sp.cadence;
+  const rawCadence = Array.isArray(sp.cadence) ? sp.cadence[0] : sp.cadence;
   const defaultCadence: DonationCadence =
     rawCadence && (VALID_CADENCES as string[]).includes(rawCadence)
       ? (rawCadence as DonationCadence)
       : "ONCE";
 
-  const parsedAmount = sp.amount ? Number(sp.amount) : NaN;
+  const rawAmount = Array.isArray(sp.amount) ? sp.amount[0] : sp.amount;
+  const parsedAmount = rawAmount ? Number(rawAmount) : NaN;
   const defaultAmountCents = Number.isFinite(parsedAmount) ? parsedAmount : undefined;
+
+  const rawError = Array.isArray(sp.error) ? sp.error[0] : sp.error;
+  const sanitizedError = rawError
+    ? rawError.slice(0, 200).replace(/[\r\n\t]+/g, " ")
+    : null;
 
   const action = donateNow.bind(null, data.campaign.slug);
 
   return (
     <PublicShell>
       <div className="container" style={{ paddingTop: 48, paddingBottom: 72 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 360px",
-            gap: 48,
-            alignItems: "start",
-          }}
-        >
+        <div className="campaign-layout">
           <article>
             {data.campaign.coverImageUrl ? (
               <img
                 src={data.campaign.coverImageUrl}
                 alt=""
-                style={{ marginBottom: 24, width: "100%", borderRadius: 8 }}
+                style={{
+                  marginBottom: 24,
+                  width: "100%",
+                  aspectRatio: "16 / 7",
+                  objectFit: "cover",
+                  borderRadius: 8,
+                  display: "block",
+                }}
               />
             ) : null}
             <Eyebrow>
@@ -141,17 +151,17 @@ export default async function CampaignPage({
                 <Fact icon="users" label="Donors">
                   {data.campaign.donorCount}
                 </Fact>
-                {data.campaign.deadline && (
+                {validDeadlineMs !== null && (
                   <Fact icon="calendar" label="Ends">
-                    {new Date(data.campaign.deadline).toLocaleDateString()}
+                    {new Date(validDeadlineMs).toLocaleDateString()}
                   </Fact>
                 )}
               </div>
             </Card>
 
-            {sp.error ? (
-              <p role="alert" style={{ marginTop: 16, marginBottom: 0, color: "var(--bad)" }}>
-                {sp.error}
+            {sanitizedError ? (
+              <p role="alert" className="alert alert--bad" style={{ marginTop: 16 }}>
+                {sanitizedError}
               </p>
             ) : null}
 

@@ -50,13 +50,13 @@ describe("donateNow", () => {
     ).rejects.toThrow(/REDIRECT:\/auth\/login\?next=/);
   });
 
-  it("redirects back to the campaign with ?error on ApiError", async () => {
+  it("redirects back to the campaign with a donor-safe message on ApiError", async () => {
     vi.mocked(apiFetch).mockRejectedValue(
-      new ApiError(409, "campaign is not accepting donations"),
+      new ApiError(409, "stripe internal: cus_xxx mismatch"),
     );
     await expect(
       donateNow("s", fd({ campaignId: "c1", cadence: "ONCE", amountCents: "2500" })),
-    ).rejects.toThrow(/REDIRECT:\/campaigns\/s\?error=/);
+    ).rejects.toThrow(/REDIRECT:\/campaigns\/s\?error=This%20campaign%20is%20not%20accepting%20donations%20right%20now\./);
   });
 
   it("redirects with Invalid amount when amountCents is below the min", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useId } from "react";
+import { useFormStatus } from "react-dom";
 import { Card } from "../primitives/Card";
 import { Button } from "../primitives/Button";
 import { Field } from "../primitives/Field";
@@ -48,6 +49,20 @@ function sanitizeInitialChip(value: number | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isSafeInteger(value) || value < MIN_CENTS) return undefined;
   return value;
+}
+
+function SubmitButton({ disabled }: { disabled: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button
+      type="submit"
+      variant="primary"
+      block
+      disabled={disabled || pending}
+    >
+      {pending ? "Redirecting…" : "Continue to donate"}
+    </Button>
+  );
 }
 
 export function DonatePanel({
@@ -148,14 +163,7 @@ export function DonatePanel({
             />
           </Field>
 
-          <Button
-            type="submit"
-            variant="primary"
-            block
-            disabled={isSubmitDisabled}
-          >
-            Continue to donate
-          </Button>
+          <SubmitButton disabled={isSubmitDisabled} />
         </fieldset>
 
         {disabled && disabledReason && (
