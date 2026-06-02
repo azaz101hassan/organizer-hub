@@ -332,6 +332,137 @@ describe('Admin campaigns API', () => {
       }
     });
 
+    it('cross-campaign scoping: raisedCents for campaign A excludes payment events from campaign B', async () => {
+      // Two campaigns under the same coalition. A PE seeded against B must not
+      // bleed into A's aggregate — catches a mistyped WHERE clause (donation: {}
+      // instead of donation: { campaignId }).
+      const campaignB = await prisma.campaign.create({
+        data: campaignFactory({
+          id: 'camp_scope_b',
+          organizationId: ORG_ID,
+          coalitionId,
+          slug: 'scope-campaign-b',
+          name: 'Scope Campaign B',
+          status: 'ACTIVE',
+        }),
+      });
+
+      try {
+        const donA = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_scope_a',
+            organizationId: ORG_ID,
+            userId: 'user_scope_a',
+            campaignId,
+            mode: 'ONE_TIME',
+            cadence: 'ONCE',
+            status: 'COMPLETED',
+            stripeSubscriptionId: null,
+          }),
+        });
+        const donB = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_scope_b',
+            organizationId: ORG_ID,
+            userId: 'user_scope_b',
+            campaignId: campaignB.id,
+            mode: 'ONE_TIME',
+            cadence: 'ONCE',
+            status: 'COMPLETED',
+            stripeSubscriptionId: null,
+          }),
+        });
+
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_scope_a',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 10_000,
+            currency: 'usd',
+            donationId: donA.id,
+            succeededAt: new Date(),
+          },
+        });
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_scope_b',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 99_999,
+            currency: 'usd',
+            donationId: donB.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.raisedCents).toBe(10_000);
+        expect(res.body.donorCount).toBe(1);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.campaign.delete({ where: { id: campaignB.id } }).catch(() => {});
+      }
+    });
+
+    it('DISPUTE kind nets out: signed negative DISPUTE PaymentEvent reduces raisedCents', async () => {
+      const don = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_dispute_test',
+          organizationId: ORG_ID,
+          userId: 'user_dispute_1',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_dispute_1',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 20_000,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+        // Dispute row — stored as negative per schema convention.
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_dispute_1',
+            kind: 'DISPUTE',
+            status: 'SUCCEEDED',
+            amountCents: -5_000,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.raisedCents).toBe(15_000);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
     it('PENDING and FAILED PaymentEvents do not contribute to raisedCents', async () => {
       const don = await prisma.donation.create({
         data: donationFactory({

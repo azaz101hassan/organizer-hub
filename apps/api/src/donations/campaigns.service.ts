@@ -71,31 +71,11 @@ export class CampaignsService {
       throw new NotFoundException();
     }
 
-    // raisedCents/donorCount/recentGiftCount join PaymentEvent → Donation via
-    // donation_id. Today, the webhook write path in payment-events.service.ts does
-    // not populate donation_id on new PaymentEvent rows — Phase E (the donation
-    // webhook arms) is the unit that wires that through. Until Phase E ships,
-    // every campaign reads as 0/0/0; afterward, refunds and disputes net the
-    // total correctly because they inherit donation_id from the original DONATION.
+    // raisedCents nets refunds and disputes (their amountCents is signed negative
+    // in the schema). donorCount is distinct userIds across all SUCCEEDED rows.
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000);
-    const [raised, donorRows, recentGiftCount] = await Promise.all([
-      this.prisma.paymentEvent.aggregate({
-        _sum: { amountCents: true },
-        where: {
-          donation: { campaignId: campaign.id },
-          status: 'SUCCEEDED',
-        },
-      }),
-      // Count distinct userId from SUCCEEDED payment events (not donation status).
-      // A recurring donor who later canceled their donation still has SUCCEEDED
-      // PaymentEvents — their contribution is counted.
-      this.prisma.paymentEvent.groupBy({
-        by: ['userId'],
-        where: {
-          donation: { campaignId: campaign.id },
-          status: 'SUCCEEDED',
-        },
-      }),
+    const [totals, recentGiftCount] = await Promise.all([
+      this.campaignTotals(campaign.id),
       // 30-day momentum signal: only DONATION-kind events (excludes refunds/disputes).
       this.prisma.paymentEvent.count({
         where: {
@@ -106,7 +86,7 @@ export class CampaignsService {
         },
       }),
     ]);
-    const donorCount = donorRows.length;
+    const { raisedCents, donorCount } = totals;
 
     return {
       campaign: {
@@ -119,7 +99,7 @@ export class CampaignsService {
         currency: campaign.currency,
         deadline: campaign.deadline,
         status: campaign.status as 'ACTIVE' | 'COMPLETE',
-        raisedCents: raised._sum.amountCents ?? 0,
+        raisedCents,
         donorCount,
         recentGiftCount,
       },
@@ -128,6 +108,31 @@ export class CampaignsService {
         slug: campaign.coalition.slug,
         name: campaign.coalition.name,
       },
+    };
+  }
+
+  // ── Shared aggregate helpers ─────────────────────────────────────────────────
+
+  // raisedCents: sum of all SUCCEEDED amountCents for the campaign (refunds and
+  // disputes have negative amountCents and automatically net the total).
+  // donorCount: number of distinct userIds across all SUCCEEDED payment events
+  // (a recurring donor who later canceled is still counted).
+  private async campaignTotals(
+    campaignId: string,
+  ): Promise<{ raisedCents: number; donorCount: number }> {
+    const [raised, donorRows] = await Promise.all([
+      this.prisma.paymentEvent.aggregate({
+        _sum: { amountCents: true },
+        where: { donation: { campaignId }, status: 'SUCCEEDED' },
+      }),
+      this.prisma.paymentEvent.groupBy({
+        by: ['userId'],
+        where: { donation: { campaignId }, status: 'SUCCEEDED' },
+      }),
+    ]);
+    return {
+      raisedCents: raised._sum.amountCents ?? 0,
+      donorCount: donorRows.length,
     };
   }
 
@@ -154,21 +159,8 @@ export class CampaignsService {
       throw new NotFoundException();
     }
 
-    const [raised, donorRows, activeRecurringCount] = await Promise.all([
-      this.prisma.paymentEvent.aggregate({
-        _sum: { amountCents: true },
-        where: {
-          donation: { campaignId: existing.id },
-          status: 'SUCCEEDED',
-        },
-      }),
-      this.prisma.paymentEvent.groupBy({
-        by: ['userId'],
-        where: {
-          donation: { campaignId: existing.id },
-          status: 'SUCCEEDED',
-        },
-      }),
+    const [totals, activeRecurringCount] = await Promise.all([
+      this.campaignTotals(existing.id),
       this.prisma.donation.count({
         where: {
           campaignId: existing.id,
@@ -180,8 +172,8 @@ export class CampaignsService {
 
     return {
       ...existing,
-      raisedCents: raised._sum.amountCents ?? 0,
-      donorCount: donorRows.length,
+      raisedCents: totals.raisedCents,
+      donorCount: totals.donorCount,
       activeRecurringCount,
     };
   }
