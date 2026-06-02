@@ -6,6 +6,12 @@ import type { NextConfig } from "next";
 // available without duplicating env files per app.
 config({ path: path.resolve(__dirname, "../../.env") });
 
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  images: {
+    // Cover images come from admin-supplied URLs with an open-ended host set,
+    // so route them around the optimizer rather than maintaining a remotePatterns allowlist.
+    unoptimized: true,
+  },
+};
 
 export default nextConfig;

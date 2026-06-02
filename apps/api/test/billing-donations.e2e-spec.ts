@@ -345,6 +345,55 @@ describe('GET /donations/mine', () => {
     });
   });
 
+  it('filters by ?status=ACTIVE', async () => {
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_mine_active_1',
+      }),
+    });
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'CANCELED',
+        stripeSubscriptionId: 'sub_mine_canceled_1',
+        canceledAt: new Date('2025-01-01T00:00:00Z'),
+      }),
+    });
+
+    const res = await request(app.getHttpServer()).get('/donations/mine?status=ACTIVE');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].status).toBe('ACTIVE');
+  });
+
+  it('?mode=RECURRING filter still works after the DTO refactor', async () => {
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'ONE_TIME', cadence: 'ONCE', status: 'COMPLETED',
+      }),
+    });
+    await prisma.donation.create({
+      data: donationFactory({
+        userId: USER, campaignId: 'camp_1', organizationId: 'org_test_donations',
+        mode: 'RECURRING', cadence: 'MONTHLY', status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_mine_recurring_mode_1',
+      }),
+    });
+
+    const res = await request(app.getHttpServer()).get('/donations/mine?mode=RECURRING');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].mode).toBe('RECURRING');
+  });
+
+  it('400s on unknown query field (forbidNonWhitelisted)', async () => {
+    const res = await request(app.getHttpServer()).get('/donations/mine?unknownField=foo');
+    expect(res.status).toBe(400);
+  });
+
   it('400s on invalid mode', async () => {
     const res = await request(app.getHttpServer()).get('/donations/mine?mode=BOGUS');
     expect(res.status).toBe(400);

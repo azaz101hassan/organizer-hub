@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ApiError,
   publicApiFetch,
@@ -97,7 +98,7 @@ export default async function CampaignPage({
     ? rawError.slice(0, 200).replace(/[\r\n\t]+/g, " ")
     : null;
 
-  const action = donateNow.bind(null, data.campaign.slug);
+  const action = donateNow.bind(null, data.campaign.slug, undefined);
 
   return (
     <PublicShell>
@@ -105,18 +106,24 @@ export default async function CampaignPage({
         <div className="campaign-layout">
           <article>
             {data.campaign.coverImageUrl ? (
-              <img
-                src={data.campaign.coverImageUrl}
-                alt=""
+              <div
                 style={{
+                  position: "relative",
                   marginBottom: 24,
                   width: "100%",
                   aspectRatio: "16 / 7",
-                  objectFit: "cover",
                   borderRadius: 8,
-                  display: "block",
+                  overflow: "hidden",
                 }}
-              />
+              >
+                <Image
+                  src={data.campaign.coverImageUrl}
+                  alt=""
+                  fill
+                  sizes="(max-width: 768px) 100vw, 720px"
+                  style={{ objectFit: "cover" }}
+                />
+              </div>
             ) : null}
             <Eyebrow>
               <Link href={`/coalitions/${data.coalition.slug}`}>{data.coalition.name}</Link>

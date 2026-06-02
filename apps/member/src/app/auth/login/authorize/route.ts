@@ -1,10 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { oidcConfig, oidcEndpoints } from "@/lib/oidc";
 import { generatePkcePair, generateState } from "@organizer-hub/web-shared/oidc/pkce";
 
-export async function GET(): Promise<Response> {
+function isSafeRelativePath(value: string | null): value is string {
+  if (!value) return false;
+  if (!value.startsWith("/")) return false;
+  if (value.startsWith("//")) return false;
+  return true;
+}
+
+export async function GET(req: NextRequest): Promise<Response> {
   const { verifier, challenge } = generatePkcePair();
   const state = generateState();
+  const next = req.nextUrl.searchParams.get("next");
 
   const authUrl = new URL(oidcEndpoints.authorize);
   authUrl.searchParams.set("client_id", oidcConfig.clientId);
@@ -28,5 +36,8 @@ export async function GET(): Promise<Response> {
   };
   res.cookies.set("oh_member_state", state, cookieOpts);
   res.cookies.set("oh_member_pkce", verifier, cookieOpts);
+  if (isSafeRelativePath(next)) {
+    res.cookies.set("oh_member_next", next, cookieOpts);
+  }
   return res;
 }

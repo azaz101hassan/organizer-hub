@@ -30,6 +30,20 @@ export interface CoalitionUpdateFormState {
   ok?: boolean;
 }
 
+function parseBodyMessage(body: string, fallback: string): string {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+      const msg = (parsed as { message: unknown }).message;
+      if (typeof msg === "string") return msg;
+      if (Array.isArray(msg) && msg.length > 0) return msg.join("; ");
+    }
+  } catch {
+    // fall through
+  }
+  return fallback;
+}
+
 function validateCoalitionFields(
   name: string,
   slug: string,
@@ -93,8 +107,10 @@ export async function updateCoalition(
     if (err instanceof ApiError) {
       const message =
         err.status === 409
-          ? "A coalition with that slug already exists."
-          : `Could not save changes (${err.status}).`;
+          ? parseBodyMessage(err.body, "A coalition with that slug already exists.")
+          : err.status === 400
+            ? parseBodyMessage(err.body, "Could not save changes — please check the form and try again.")
+            : `Could not save changes (${err.status}).`;
       return { error: message, values: { name, slug, description, coverImageUrl, displayOrder } };
     }
     throw err;
@@ -155,7 +171,7 @@ function validateCampaignFields(
 
   let targetAmountCents: number | undefined;
   if (!targetRaw) {
-    errors.target = "Goal in USD is required.";
+    errors.target = "Goal amount is required.";
   } else if (!GOAL_PATTERN.test(targetRaw)) {
     errors.target =
       "Goal must be a number with up to 2 decimal places (e.g. 100 or 100.50).";
@@ -264,20 +280,16 @@ export async function createCampaign(
         // The API returns two distinct 409s: slug collision and archived parent.
         // Surface the API's message so the admin sees the real cause rather than
         // a misleading "slug already exists" message in the archived-parent case.
-        let message: string;
-        try {
-          const parsed: unknown = JSON.parse(err.body);
-          message =
-            typeof parsed === "object" &&
-            parsed !== null &&
-            "message" in parsed &&
-            typeof (parsed as { message: unknown }).message === "string"
-              ? (parsed as { message: string }).message
-              : "Could not create the campaign — please reload and try again.";
-        } catch {
-          message = "Could not create the campaign — please reload and try again.";
-        }
-        return { error: message, values: preserved };
+        return {
+          error: parseBodyMessage(err.body, "Could not create the campaign — please reload and try again."),
+          values: preserved,
+        };
+      }
+      if (err.status === 400) {
+        return {
+          error: parseBodyMessage(err.body, "Could not save changes — please check the form and try again."),
+          values: preserved,
+        };
       }
       return { error: `Could not save changes (${err.status}).`, values: preserved };
     }

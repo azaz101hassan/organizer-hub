@@ -20,7 +20,9 @@ export default async function MyDonationsPage() {
   try {
     const all = await apiFetch<DonationRow[]>("/donations/mine?mode=RECURRING");
     const list = Array.isArray(all) ? all : [];
-    rows = list.filter((r) => r.status === "ACTIVE");
+    // Include PENDING alongside ACTIVE so donors mid-checkout can see their
+    // attempt rather than wondering whether anything happened.
+    rows = list.filter((r) => r.status === "ACTIVE" || r.status === "PENDING");
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       redirect("/auth/login");

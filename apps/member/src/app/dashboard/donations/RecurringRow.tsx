@@ -88,36 +88,51 @@ export function RecurringRow({ row, index }: { row: DonationRow; index: number }
         <span className="mono" style={{ fontSize: 13.5, whiteSpace: "nowrap" }}>
           {amountDisplay}
         </span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <form action={formAction}>
-            <input type="hidden" name="donationId" value={row.id} />
-            <Button
-              type="submit"
-              variant="danger"
-              size="sm"
-              disabled={pending}
-              onClick={(e) => {
-                if (
-                  !window.confirm(
-                    "Cancel this recurring donation? You won't be charged again, but your current contribution still goes through.",
-                  )
-                ) {
-                  e.preventDefault();
-                }
-              }}
-            >
-              {pending ? "Cancelling…" : "Cancel"}
-            </Button>
-          </form>
-          {state.error && (
-            <p
-              role="alert"
-              style={{ fontSize: 12, color: "var(--bad)", margin: 0 }}
-            >
-              {state.error}
-            </p>
-          )}
-        </div>
+        {row.status === "PENDING" ? (
+          <span
+            className="faint"
+            style={{
+              fontSize: 12,
+              padding: "3px 8px",
+              borderRadius: 999,
+              border: "1px solid var(--line)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Checkout pending
+          </span>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <form action={formAction}>
+              <input type="hidden" name="donationId" value={row.id} />
+              <Button
+                type="submit"
+                variant="danger"
+                size="sm"
+                disabled={pending}
+                onClick={(e) => {
+                  if (
+                    !window.confirm(
+                      "Cancel this recurring donation? You won't be charged again, but your current contribution still goes through.",
+                    )
+                  ) {
+                    e.preventDefault();
+                  }
+                }}
+              >
+                {pending ? "Cancelling…" : "Cancel"}
+              </Button>
+            </form>
+            {state.error && (
+              <p
+                role="alert"
+                style={{ fontSize: 12, color: "var(--bad)", margin: 0 }}
+              >
+                {state.error}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </li>
   );

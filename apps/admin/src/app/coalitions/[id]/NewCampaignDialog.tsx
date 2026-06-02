@@ -13,22 +13,14 @@ interface NewCampaignDialogProps {
 export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
-  const [formKey, setFormKey] = useState(0);
-  const boundAction = createCampaign.bind(null, coalitionId);
-  const [state, formAction, pending] = useActionState(boundAction, INITIAL);
-
-  useEffect(() => {
-    if (state.ok) {
-      dialogRef.current?.close();
-    }
-  }, [state.ok]);
+  const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     function handleClose() {
       triggerRef.current?.focus();
-      setFormKey((k) => k + 1);
+      setGeneration((g) => g + 1);
     }
     dialog.addEventListener("close", handleClose);
     return () => dialog.removeEventListener("close", handleClose);
@@ -40,7 +32,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
   }
 
   function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
-    if (e.target === dialogRef.current && !pending) {
+    if (e.target === dialogRef.current) {
       dialogRef.current?.close();
     }
   }
@@ -64,165 +56,186 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
           boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
         }}
       >
-        <div style={{ padding: "28px 28px 24px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 20,
-            }}
-          >
-            <h2
-              id="new-campaign-title"
-              style={{ margin: 0, fontSize: 17, fontWeight: 600 }}
-            >
-              New campaign
-            </h2>
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => dialogRef.current?.close()}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 20,
-                lineHeight: 1,
-                color: "var(--muted)",
-                padding: "2px 6px",
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          <form
-            key={formKey}
-            action={formAction}
-            style={{ display: "flex", flexDirection: "column", gap: 14 }}
-          >
-            <FormField
-              id="camp-name"
-              name="name"
-              label="Name"
-              required
-              maxLength={120}
-              defaultValue={state.values?.name ?? ""}
-              disabled={pending}
-              error={state.fieldErrors?.name}
-            />
-            <FormField
-              id="camp-slug"
-              name="slug"
-              label="Slug"
-              required
-              maxLength={80}
-              pattern="[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]"
-              placeholder="e.g. spring-drive"
-              defaultValue={state.values?.slug ?? ""}
-              disabled={pending}
-              error={state.fieldErrors?.slug}
-              hint="Lowercase letters, digits, and hyphens only."
-            />
-            <FormField
-              id="camp-description"
-              name="description"
-              label="Description"
-              maxLength={2000}
-              defaultValue={state.values?.description ?? ""}
-              disabled={pending}
-              multiline
-            />
-            <FormField
-              id="camp-cover"
-              name="coverImageUrl"
-              label="Cover image URL"
-              maxLength={500}
-              placeholder="https://…"
-              defaultValue={state.values?.coverImageUrl ?? ""}
-              disabled={pending}
-              error={state.fieldErrors?.coverImageUrl}
-              hint="Must start with https://, http://, or /."
-            />
-            <FormField
-              id="camp-target"
-              name="target"
-              label="Goal in USD"
-              type="number"
-              required
-              min={1}
-              max={21474836.47}
-              step="0.01"
-              placeholder="e.g. 1000"
-              defaultValue={state.values?.target ?? ""}
-              disabled={pending}
-              error={state.fieldErrors?.target}
-            />
-            <FormField
-              id="camp-currency"
-              name="currency"
-              label="Currency"
-              maxLength={3}
-              placeholder="usd"
-              defaultValue={state.values?.currency ?? ""}
-              disabled={pending}
-              error={state.fieldErrors?.currency}
-              hint="3-letter ISO 4217 code (e.g. usd). Leave blank to use usd."
-            />
-            <FormField
-              id="camp-deadline"
-              name="deadline"
-              label="Deadline"
-              type="date"
-              defaultValue={state.values?.deadline ?? ""}
-              disabled={pending}
-            />
-            <FormField
-              id="camp-order"
-              name="displayOrder"
-              label="Display order"
-              type="number"
-              min={0}
-              max={9999}
-              defaultValue={
-                state.values?.displayOrder !== undefined
-                  ? String(state.values.displayOrder)
-                  : ""
-              }
-              disabled={pending}
-              error={state.fieldErrors?.displayOrder}
-            />
-
-            {state.error && (
-              <p
-                role="alert"
-                style={{ margin: 0, fontSize: 13, color: "var(--bad, #dc2626)" }}
-              >
-                {state.error}
-              </p>
-            )}
-
-            <div
-              style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}
-            >
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => dialogRef.current?.close()}
-                disabled={pending}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" size="sm" disabled={pending}>
-                {pending ? "Creating…" : "Create campaign"}
-              </Button>
-            </div>
-          </form>
-        </div>
+        <NewCampaignDialogContent
+          key={generation}
+          coalitionId={coalitionId}
+          onClose={() => dialogRef.current?.close()}
+        />
       </dialog>
     </>
+  );
+}
+
+interface NewCampaignDialogContentProps {
+  coalitionId: string;
+  onClose: () => void;
+}
+
+function NewCampaignDialogContent({ coalitionId, onClose }: NewCampaignDialogContentProps) {
+  const boundAction = createCampaign.bind(null, coalitionId);
+  const [state, formAction, pending] = useActionState(boundAction, INITIAL);
+
+  useEffect(() => {
+    if (state.ok) onClose();
+  }, [state.ok, onClose]);
+
+  return (
+    <div style={{ padding: "28px 28px 24px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+        }}
+      >
+        <h2
+          id="new-campaign-title"
+          style={{ margin: 0, fontSize: 17, fontWeight: 600 }}
+        >
+          New campaign
+        </h2>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 20,
+            lineHeight: 1,
+            color: "var(--muted)",
+            padding: "2px 6px",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <form
+        action={formAction}
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
+      >
+        <FormField
+          id="camp-name"
+          name="name"
+          label="Name"
+          required
+          maxLength={120}
+          defaultValue={state.values?.name ?? ""}
+          disabled={pending}
+          error={state.fieldErrors?.name}
+        />
+        <FormField
+          id="camp-slug"
+          name="slug"
+          label="Slug"
+          required
+          maxLength={80}
+          pattern="[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]"
+          placeholder="e.g. spring-drive"
+          defaultValue={state.values?.slug ?? ""}
+          disabled={pending}
+          error={state.fieldErrors?.slug}
+          hint="Lowercase letters, digits, and hyphens only."
+        />
+        <FormField
+          id="camp-description"
+          name="description"
+          label="Description"
+          maxLength={2000}
+          defaultValue={state.values?.description ?? ""}
+          disabled={pending}
+          multiline
+        />
+        <FormField
+          id="camp-cover"
+          name="coverImageUrl"
+          label="Cover image URL"
+          maxLength={500}
+          placeholder="https://…"
+          defaultValue={state.values?.coverImageUrl ?? ""}
+          disabled={pending}
+          error={state.fieldErrors?.coverImageUrl}
+          hint="Must start with https://, http://, or /."
+        />
+        <FormField
+          id="camp-target"
+          name="target"
+          label="Goal amount"
+          type="number"
+          required
+          min={1}
+          max={21474836.47}
+          step="0.01"
+          placeholder="e.g. 1000"
+          defaultValue={state.values?.target ?? ""}
+          disabled={pending}
+          error={state.fieldErrors?.target}
+        />
+        <FormField
+          id="camp-currency"
+          name="currency"
+          label="Currency"
+          maxLength={3}
+          placeholder="usd"
+          defaultValue={state.values?.currency ?? ""}
+          disabled={pending}
+          error={state.fieldErrors?.currency}
+          hint="3-letter ISO 4217 code (e.g. usd). Leave blank to use usd."
+        />
+        <FormField
+          id="camp-deadline"
+          name="deadline"
+          label="Deadline"
+          type="date"
+          defaultValue={state.values?.deadline ?? ""}
+          disabled={pending}
+        />
+        <FormField
+          id="camp-order"
+          name="displayOrder"
+          label="Display order"
+          type="number"
+          min={0}
+          max={9999}
+          defaultValue={
+            state.values?.displayOrder !== undefined
+              ? String(state.values.displayOrder)
+              : ""
+          }
+          disabled={pending}
+          error={state.fieldErrors?.displayOrder}
+        />
+
+        {state.error && (
+          <p
+            role="alert"
+            style={{ margin: 0, fontSize: 13, color: "var(--bad, #dc2626)" }}
+          >
+            {state.error}
+          </p>
+        )}
+
+        <div
+          style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="sm" disabled={pending}>
+            {pending ? "Creating…" : "Create campaign"}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 

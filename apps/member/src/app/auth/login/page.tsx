@@ -4,7 +4,24 @@ export const metadata = {
   title: "Sign in — OrganizerHub",
 };
 
-export default function SignInPage() {
+function safeNext(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  if (!raw.startsWith("/")) return null;
+  if (raw.startsWith("//")) return null;
+  return raw;
+}
+
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const next = safeNext(sp.next);
+  const continueHref = next
+    ? `/auth/login/authorize?next=${encodeURIComponent(next)}`
+    : "/auth/login/authorize";
   return (
     <div
       className="scene"
@@ -82,7 +99,7 @@ export default function SignInPage() {
             your identity.
           </p>
           <a
-            href="/auth/login/authorize"
+            href={continueHref}
             className="btn btn--primary btn--lg btn--block"
             aria-label="Sign in to OrganizerHub"
           >

@@ -106,7 +106,7 @@ export default async function DonatePage({
     ? errorRaw.replace(/[\r\n\t]/g, "").slice(0, 200)
     : null;
 
-  const action = donateNow.bind(null, GENERAL_FUND_SLUG);
+  const action = donateNow.bind(null, GENERAL_FUND_SLUG, "/donate");
 
   const raisedDollars = (data.campaign.raisedCents / 100).toLocaleString();
   const hasProgress =
