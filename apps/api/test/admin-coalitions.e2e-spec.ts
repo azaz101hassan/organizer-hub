@@ -165,6 +165,30 @@ describe('Admin coalitions API', () => {
         .send({ status: 'ARCHIVED' })
         .expect(400);
     });
+
+    it('returns 200 with description: null when null is sent to clear the field', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/coalitions/${coalitionId}`)
+        .send({ description: null })
+        .expect(200);
+
+      expect(res.body.description).toBeNull();
+    });
+
+    it('clears description after a previous set: final value is null', async () => {
+      // First set a description, then clear it — proves the null path works after a non-null write.
+      await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/coalitions/${coalitionId}`)
+        .send({ description: 'Some text' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/coalitions/${coalitionId}`)
+        .send({ description: null })
+        .expect(200);
+
+      expect(res.body.description).toBeNull();
+    });
   });
 
   describe('POST /orgs/:orgId/coalitions/:id/archive', () => {

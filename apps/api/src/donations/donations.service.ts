@@ -128,9 +128,13 @@ export class DonationsService {
     return { url: session.url ?? '', donationId: donation.id };
   }
 
-  async listForUser(input: { userSub: string; mode?: 'ONE_TIME' | 'RECURRING' }) {
+  async listForUser(input: { userSub: string; mode?: DonationMode; status?: DonationStatus }) {
     return this.prisma.donation.findMany({
-      where: { userId: input.userSub, ...(input.mode ? { mode: input.mode } : {}) },
+      where: {
+        userId: input.userSub,
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.status ? { status: input.status } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         campaign: {

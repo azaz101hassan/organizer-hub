@@ -463,6 +463,128 @@ describe('Admin campaigns API', () => {
       }
     });
 
+    it('donorCount counts DONATION-kind userIds only; same userId with DONATION+REFUND still counts as 1', async () => {
+      // userA has both a DONATION PE and a REFUND PE — they are 1 donor, not 2.
+      const don = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_kind_same_user',
+          organizationId: ORG_ID,
+          userId: 'user_kind_a',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_kind_a',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 10_000,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_kind_a',
+            kind: 'REFUND',
+            status: 'SUCCEEDED',
+            amountCents: -2_000,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        // donorCount must be 1 — the REFUND row does not inflate the count.
+        expect(res.body.donorCount).toBe(1);
+        // raisedCents still nets the refund.
+        expect(res.body.raisedCents).toBe(8_000);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
+    it('donorCount excludes a user who has only REFUND-kind SUCCEEDED events (no DONATION kind)', async () => {
+      // userA has a DONATION PE; userB has ONLY a REFUND PE (admin-edited synthetic row).
+      // donorCount must be 1 — userB's refund-only presence is not a donation.
+      const donA = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_kind_donor_a',
+          organizationId: ORG_ID,
+          userId: 'user_kind_donor_a',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+      const donB = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_kind_refund_b',
+          organizationId: ORG_ID,
+          userId: 'user_kind_refund_b',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_kind_donor_a',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 5_000,
+            currency: 'usd',
+            donationId: donA.id,
+            succeededAt: new Date(),
+          },
+        });
+        // userB has only a REFUND row — no DONATION row.
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_kind_refund_b',
+            kind: 'REFUND',
+            status: 'SUCCEEDED',
+            amountCents: -1_000,
+            currency: 'usd',
+            donationId: donB.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        // Only userA has a DONATION-kind SUCCEEDED PE; userB must not be counted.
+        expect(res.body.donorCount).toBe(1);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
     it('PENDING and FAILED PaymentEvents do not contribute to raisedCents', async () => {
       const don = await prisma.donation.create({
         data: donationFactory({
@@ -764,6 +886,44 @@ describe('Admin campaigns API', () => {
         .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
         .send({ coalitionId: 'coal_other' })
         .expect(400);
+    });
+
+    it('returns 200 with description: null when null is sent to clear the field', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .send({ description: null })
+        .expect(200);
+
+      expect(res.body.description).toBeNull();
+    });
+
+    it('clears description after a previous set: final value is null', async () => {
+      await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .send({ description: 'Some text' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .send({ description: null })
+        .expect(200);
+
+      expect(res.body.description).toBeNull();
+    });
+
+    it('returns 200 with deadline: null when null is sent to clear the field', async () => {
+      // First set a deadline so we can prove clearing it works.
+      await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .send({ deadline: '2099-12-31T00:00:00.000Z' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .send({ deadline: null })
+        .expect(200);
+
+      expect(res.body.deadline).toBeNull();
     });
 
     it('returns 409 on slug collision when renaming', async () => {

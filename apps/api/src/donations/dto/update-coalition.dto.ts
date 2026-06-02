@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Length, Matches, Max, Min, ValidateIf } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -22,16 +22,18 @@ export class UpdateCoalitionDto {
   slug?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @Transform(trim)
   @IsString()
   @Length(1, 2000)
-  description?: string;
+  description?: string | null;
 
   // No @IsUrl: see CreateCoalitionDto for the rationale.
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Length(1, 500)
-  coverImageUrl?: string;
+  coverImageUrl?: string | null;
 
   @IsOptional()
   @IsInt()

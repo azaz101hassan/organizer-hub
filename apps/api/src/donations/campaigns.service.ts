@@ -127,7 +127,7 @@ export class CampaignsService {
       }),
       this.prisma.paymentEvent.groupBy({
         by: ['userId'],
-        where: { donation: { campaignId }, status: 'SUCCEEDED' },
+        where: { donation: { campaignId }, status: 'SUCCEEDED', kind: 'DONATION' },
       }),
     ]);
     return {
@@ -234,11 +234,11 @@ export class CampaignsService {
     data: {
       name?: string;
       slug?: string;
-      description?: string;
-      coverImageUrl?: string;
+      description?: string | null;
+      coverImageUrl?: string | null;
       targetAmountCents?: number;
       currency?: string;
-      deadline?: string;
+      deadline?: string | null;
       displayOrder?: number;
     },
   ) {
@@ -251,7 +251,12 @@ export class CampaignsService {
         where: { id },
         data: {
           ...data,
-          deadline: data.deadline !== undefined ? new Date(data.deadline) : undefined,
+          deadline:
+            data.deadline === null
+              ? null
+              : data.deadline !== undefined
+              ? new Date(data.deadline)
+              : undefined,
         },
         include: { coalition: this.coalitionSelect },
       });

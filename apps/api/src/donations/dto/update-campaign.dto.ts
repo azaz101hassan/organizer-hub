@@ -8,6 +8,7 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) =>
@@ -32,19 +33,21 @@ export class UpdateCampaignDto {
   slug?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @Transform(trim)
   @IsString()
   @Length(1, 2000)
-  description?: string;
+  description?: string | null;
 
   // See CreateCampaignDto for the scheme/path rationale.
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Length(1, 500)
   @Matches(/^(https?:\/\/|\/)/, {
     message: 'coverImageUrl must be an http(s) URL or an absolute path',
   })
-  coverImageUrl?: string;
+  coverImageUrl?: string | null;
 
   @IsOptional()
   @IsInt()
@@ -61,8 +64,9 @@ export class UpdateCampaignDto {
   currency?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsISO8601()
-  deadline?: string;
+  deadline?: string | null;
 
   @IsOptional()
   @IsInt()

@@ -231,8 +231,8 @@ export class CoalitionsService {
     data: {
       name?: string;
       slug?: string;
-      description?: string;
-      coverImageUrl?: string;
+      description?: string | null;
+      coverImageUrl?: string | null;
       displayOrder?: number;
     },
   ) {
