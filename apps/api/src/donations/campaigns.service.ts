@@ -153,7 +153,37 @@ export class CampaignsService {
     if (!existing || existing.organizationId !== organizationId) {
       throw new NotFoundException();
     }
-    return existing;
+
+    const [raised, donorRows, activeRecurringCount] = await Promise.all([
+      this.prisma.paymentEvent.aggregate({
+        _sum: { amountCents: true },
+        where: {
+          donation: { campaignId: existing.id },
+          status: 'SUCCEEDED',
+        },
+      }),
+      this.prisma.paymentEvent.groupBy({
+        by: ['userId'],
+        where: {
+          donation: { campaignId: existing.id },
+          status: 'SUCCEEDED',
+        },
+      }),
+      this.prisma.donation.count({
+        where: {
+          campaignId: existing.id,
+          mode: 'RECURRING',
+          status: 'ACTIVE',
+        },
+      }),
+    ]);
+
+    return {
+      ...existing,
+      raisedCents: raised._sum.amountCents ?? 0,
+      donorCount: donorRows.length,
+      activeRecurringCount,
+    };
   }
 
   async createForAdmin(

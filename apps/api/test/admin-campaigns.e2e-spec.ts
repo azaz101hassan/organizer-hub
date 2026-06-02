@@ -9,7 +9,7 @@ import {
   stubJwtAuthGuard,
   type SubHolder,
 } from './helpers/boot-test-app';
-import { campaignFactory, coalitionFactory } from './factories';
+import { campaignFactory, coalitionFactory, donationFactory } from './factories';
 
 const ADMIN_USER = 'admin-camp-1';
 const ORG_ID = 'org_admin_camp_test';
@@ -29,6 +29,7 @@ describe('Admin campaigns API', () => {
   beforeEach(async () => {
     // Tear down in FK-safe order, scoped to ORG_ID so a parallel suite's
     // donations are not affected if --runInBand is ever dropped.
+    await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.campaign.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.coalition.deleteMany({ where: { organizationId: ORG_ID } });
@@ -178,6 +179,261 @@ describe('Admin campaigns API', () => {
       await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns/nonexistent_id`)
         .expect(404);
+    });
+
+    it('empty aggregates: raisedCents, donorCount, activeRecurringCount are 0 for a fresh campaign', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+        .expect(200);
+
+      expect(res.body.raisedCents).toBe(0);
+      expect(res.body.donorCount).toBe(0);
+      expect(res.body.activeRecurringCount).toBe(0);
+    });
+
+    it('raisedCents and donorCount count SUCCEEDED payment events; distinct userIds for donorCount', async () => {
+      const don1 = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_agg_user1',
+          organizationId: ORG_ID,
+          userId: 'user_agg_1',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+      const don2 = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_agg_user2',
+          organizationId: ORG_ID,
+          userId: 'user_agg_2',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+      // Third donation from user_agg_1 (same userId as don1) — donorCount must stay 2.
+      const don3 = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_agg_user1b',
+          organizationId: ORG_ID,
+          userId: 'user_agg_1',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_agg_1',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 5_000,
+            currency: 'usd',
+            donationId: don1.id,
+            succeededAt: new Date(),
+          },
+        });
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_agg_2',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 3_000,
+            currency: 'usd',
+            donationId: don2.id,
+            succeededAt: new Date(),
+          },
+        });
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_agg_1',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 2_000,
+            currency: 'usd',
+            donationId: don3.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.raisedCents).toBe(10_000); // 5000 + 3000 + 2000
+        expect(res.body.donorCount).toBe(2);       // user_agg_1 and user_agg_2 (distinct)
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
+    it('refund nets out: signed negative REFUND PaymentEvent reduces raisedCents', async () => {
+      const don = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_refund_test',
+          organizationId: ORG_ID,
+          userId: 'user_refund_1',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_refund_1',
+            kind: 'DONATION',
+            status: 'SUCCEEDED',
+            amountCents: 10_000,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+        // Partial refund — stored as negative per schema convention.
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_refund_1',
+            kind: 'REFUND',
+            status: 'SUCCEEDED',
+            amountCents: -2_500,
+            currency: 'usd',
+            donationId: don.id,
+            succeededAt: new Date(),
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.raisedCents).toBe(7_500);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
+    it('PENDING and FAILED PaymentEvents do not contribute to raisedCents', async () => {
+      const don = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_pending_test',
+          organizationId: ORG_ID,
+          userId: 'user_pending_1',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'PENDING',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_pending_1',
+            kind: 'DONATION',
+            status: 'PENDING',
+            amountCents: 5_000,
+            currency: 'usd',
+            donationId: don.id,
+          },
+        });
+        await prisma.paymentEvent.create({
+          data: {
+            organizationId: ORG_ID,
+            userId: 'user_pending_1',
+            kind: 'DONATION',
+            status: 'FAILED',
+            amountCents: 5_000,
+            currency: 'usd',
+            donationId: don.id,
+          },
+        });
+
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.raisedCents).toBe(0);
+        expect(res.body.donorCount).toBe(0);
+      } finally {
+        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
+      }
+    });
+
+    it('activeRecurringCount counts only RECURRING+ACTIVE donations; ignores canceled and one-time', async () => {
+      const donRecurringActive = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_arc_recurring_active',
+          organizationId: ORG_ID,
+          userId: 'user_arc_1',
+          campaignId,
+          mode: 'RECURRING',
+          cadence: 'MONTHLY',
+          status: 'ACTIVE',
+          stripeSubscriptionId: 'sub_arc_active_1',
+        }),
+      });
+      const donRecurringCanceled = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_arc_recurring_canceled',
+          organizationId: ORG_ID,
+          userId: 'user_arc_2',
+          campaignId,
+          mode: 'RECURRING',
+          cadence: 'MONTHLY',
+          status: 'CANCELED',
+          stripeSubscriptionId: 'sub_arc_canceled_1',
+          canceledAt: new Date('2025-01-01T00:00:00Z'),
+        }),
+      });
+      const donOneTimeCompleted = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_arc_one_time',
+          organizationId: ORG_ID,
+          userId: 'user_arc_3',
+          campaignId,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+
+        expect(res.body.activeRecurringCount).toBe(1);
+      } finally {
+        await prisma.donation.deleteMany({
+          where: {
+            id: { in: [donRecurringActive.id, donRecurringCanceled.id, donOneTimeCompleted.id] },
+          },
+        });
+      }
     });
   });
 
