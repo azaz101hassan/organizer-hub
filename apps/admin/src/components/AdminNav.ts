@@ -25,6 +25,7 @@ export const ADMIN_NAV: NavGroup[] = [
     items: [
       { label: "Events", href: "/events", icon: "cal2" },
       { label: "Labels", href: "/labels", icon: "tag" },
+      { label: "Coalitions", href: "/coalitions", icon: "layers" },
       { label: "Members", href: "/members", icon: "users" },
       { label: "Waitlist", href: "/waitlist", icon: "inbox" },
     ],
