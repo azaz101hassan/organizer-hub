@@ -41,6 +41,9 @@ export function DashSidebar({
       <NavItem href="/dashboard/membership" icon="crown">
         My membership
       </NavItem>
+      <NavItem href="/dashboard/donations" icon="dollar">
+        Donations
+      </NavItem>
       <NavItem href="/dashboard/requests" icon="ticket">
         My requests
       </NavItem>

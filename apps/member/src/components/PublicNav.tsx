@@ -20,6 +20,7 @@ export async function PublicNav() {
         <div className="pubnav__links">
           <NavLink href="/events">Events</NavLink>
           <NavLink href="/membership">Membership</NavLink>
+          <NavLink href="/coalitions">Support</NavLink>
           {session ? (
             <>
               <NavLink href="/dashboard">Dashboard</NavLink>

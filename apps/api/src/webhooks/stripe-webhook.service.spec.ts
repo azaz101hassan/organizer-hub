@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { PaymentEventKind, PaymentEventStatus } from '@organizer-hub/db/api';
+import { PaymentEventKind, PaymentEventStatus, Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentEventsService } from '../payment-events/payment-events.service';
 import { MembershipsService } from '../memberships/memberships.service';
@@ -448,5 +448,110 @@ describe('StripeWebhookService — invoice.payment_succeeded', () => {
     expect(stripeClientMock.stripe.subscriptions.retrieve).toHaveBeenCalledWith('sub_123');
     const row = await prisma.paymentEvent.findFirst({ where: { kind: PaymentEventKind.MEMBERSHIP } });
     expect(row?.amountCents).toBe(2000);
+  });
+});
+
+describe('StripeWebhookService — donation invoice P2002 catch', () => {
+  let service: StripeWebhookService;
+  let prisma: PrismaService;
+
+  const ORG_ID = 'org_house_000000000000000001';
+  const COAL_ID = 'coal_p2002_1';
+  const CAMP_ID = 'camp_p2002_1';
+
+  beforeEach(async () => {
+    const mod = await Test.createTestingModule({
+      providers: [
+        StripeWebhookService,
+        PaymentEventsService,
+        PrismaService,
+        { provide: MembershipsService, useValue: { syncStripeData: jest.fn() } },
+        {
+          provide: StripeClient,
+          useValue: {
+            stripe: {
+              charges: { retrieve: jest.fn() },
+              subscriptions: { retrieve: jest.fn() },
+            },
+          },
+        },
+        { provide: WaitlistStream, useValue: { emit: jest.fn() } },
+      ],
+    }).compile();
+    service = mod.get(StripeWebhookService);
+    prisma = mod.get(PrismaService);
+    await prisma.paymentEvent.deleteMany();
+    await prisma.donation.deleteMany();
+    await prisma.campaign.deleteMany({ where: { id: CAMP_ID } });
+    await prisma.coalition.deleteMany({ where: { id: COAL_ID } });
+    await prisma.organization.upsert({
+      where: { id: ORG_ID },
+      update: {},
+      create: { id: ORG_ID, name: 'House', slug: 'house', createdBy: 'seed', donationsEnabled: true },
+    });
+    await prisma.coalition.create({
+      data: { id: COAL_ID, organizationId: ORG_ID, name: 'Coal P2002', slug: 'coal-p2002' },
+    });
+    await prisma.campaign.create({
+      data: {
+        id: CAMP_ID,
+        organizationId: ORG_ID,
+        coalitionId: COAL_ID,
+        name: 'Camp P2002',
+        slug: 'camp-p2002',
+        targetAmountCents: 10000,
+        currency: 'usd',
+        status: 'ACTIVE',
+      },
+    });
+  });
+
+  afterAll(async () => prisma.$disconnect());
+
+  it('returns { recorded: false } instead of throwing when paymentEvent.create throws P2002', async () => {
+    // Insert an ACTIVE donation so the handler reaches the create call.
+    const donation = await prisma.donation.create({
+      data: {
+        userId: 'u_p2002',
+        organizationId: ORG_ID,
+        campaignId: CAMP_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        amountCents: 500,
+        currency: 'usd',
+        status: 'ACTIVE',
+        stripeSubscriptionId: 'sub_p2002',
+        stripeCustomerId: 'cus_p2002',
+      },
+    });
+
+    // Mock paymentEvent.create to throw P2002, simulating the concurrent
+    // redelivery race where two deliveries both pass the findFirst check and
+    // then both attempt the insert.
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+      code: 'P2002',
+      clientVersion: '0.0.0',
+    });
+    jest.spyOn(prisma.paymentEvent, 'create').mockRejectedValueOnce(p2002);
+
+    const event = {
+      id: 'evt_p2002_1',
+      type: 'invoice.payment_succeeded',
+      data: {
+        object: {
+          id: 'in_p2002_1',
+          amount_paid: 500,
+          currency: 'usd',
+          customer: 'cus_p2002',
+          payment_intent: 'pi_p2002_1',
+          subscription: 'sub_p2002',
+          billing_reason: 'subscription_cycle',
+          metadata: { source: 'donation', donationId: donation.id, userId: 'u_p2002' },
+        },
+      },
+    } as unknown as Stripe.Event;
+
+    // Must not throw; must return { recorded: false }.
+    await expect(service.handle(event)).resolves.toEqual({ recorded: false });
   });
 });

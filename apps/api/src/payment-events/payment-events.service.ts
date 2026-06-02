@@ -5,8 +5,7 @@ import {
   PaymentEventStatus,
 } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
-
-const HOUSE_ORG_ID = 'org_house_000000000000000001';
+import { HOUSE_ORG_ID } from '../common/house-org';
 
 export interface PendingChargeInput {
   userId: string;
@@ -18,6 +17,7 @@ export interface PendingChargeInput {
   stripeCheckoutSessionId: string;
   description?: string;
   ticketRequestId?: string | null;
+  donationId?: string | null;
 }
 
 export interface TerminalChargeUpdate {
@@ -48,6 +48,7 @@ export interface RefundRowInput {
   stripeRefundId: string;
   stripeChargeId?: string | null;
   description?: string;
+  donationId?: string | null;
 }
 
 export interface DisputeRowInput {
@@ -57,7 +58,9 @@ export interface DisputeRowInput {
   stripeCustomerId?: string | null;
   stripeChargeId: string;
   stripePaymentIntentId?: string | null;
+  stripeDisputeId: string;
   description?: string;
+  donationId?: string | null;
 }
 
 // All writes happen inside the same transaction as the webhook handler's
@@ -92,6 +95,7 @@ export class PaymentEventsService {
           stripePaymentIntentId: input.stripePaymentIntentId ?? null,
           stripeCheckoutSessionId: input.stripeCheckoutSessionId,
           ticketRequestId: input.ticketRequestId ?? null,
+          donationId: input.donationId ?? null,
         },
       });
     } catch (err) {
@@ -113,7 +117,13 @@ export class PaymentEventsService {
     const row = await tx.paymentEvent.findFirst({
       where: {
         stripePaymentIntentId,
-        kind: { in: [PaymentEventKind.TICKET, PaymentEventKind.MEMBERSHIP, PaymentEventKind.DONATION] },
+        kind: {
+          in: [
+            PaymentEventKind.TICKET,
+            PaymentEventKind.MEMBERSHIP,
+            PaymentEventKind.DONATION,
+          ],
+        },
       },
       select: { id: true },
     });
@@ -186,6 +196,7 @@ export class PaymentEventsService {
           stripeRefundId: input.stripeRefundId,
           stripeChargeId: input.stripeChargeId ?? null,
           refundsPaymentIntentId: input.stripePaymentIntentId,
+          donationId: input.donationId ?? null,
           succeededAt: new Date(),
         },
       });
@@ -217,6 +228,8 @@ export class PaymentEventsService {
           stripeCustomerId: input.stripeCustomerId ?? null,
           stripeChargeId: input.stripeChargeId,
           stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+          stripeDisputeId: input.stripeDisputeId,
+          donationId: input.donationId ?? null,
           succeededAt: new Date(),
         },
       });

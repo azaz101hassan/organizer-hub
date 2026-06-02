@@ -31,6 +31,13 @@ export { Trend, type TrendProps } from "./charts/Trend";
 export { Segmented, type SegmentedOption, type SegmentedProps } from "./data/Segmented";
 export { DataTable, type Column, type DataTableProps } from "./data/DataTable";
 export { Toolbar, type ToolbarProps } from "./data/Toolbar";
+export { ProgressBar, type ProgressBarProps } from "./data/ProgressBar";
+
+// Donations
+export { DonatePanel, type DonatePanelProps, type DonationCadence } from "./donations/DonatePanel";
+export { CoalitionCard, type CoalitionCardProps } from "./donations/CoalitionCard";
+export { CampaignCard, type CampaignCardProps } from "./donations/CampaignCard";
+export { formatCurrencyPrefix } from "./donations/currency";
 
 // Navigation
 export { NavLink } from "./nav/NavLink";

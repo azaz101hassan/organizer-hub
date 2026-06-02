@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  DonationStatus,
   PaymentEventKind,
   PaymentEventStatus,
   Prisma,
@@ -12,17 +13,16 @@ import { StripeClient } from '../billing/stripe.client';
 import { recordProcessedWebhookEvent } from '../billing/webhook-event.helper';
 import { PaymentEventsService } from '../payment-events/payment-events.service';
 import { WaitlistStream } from '../realtime/waitlist-stream';
+import { HOUSE_ORG_ID } from '../common/house-org';
 import type { Stripe } from '../billing/stripe-types';
 
-// Subscription-relevant events all converge on syncStripeData. checkout
-// completions branch on session.mode — 'subscription' goes through the
-// same sync, 'payment' issues a Ticket row.
+// Subscription-relevant events that route directly to syncStripeData.
+// customer.subscription.deleted and invoice.payment_failed are intercepted
+// earlier in handle() for donation-aware routing and never reach this branch.
 const SUBSCRIPTION_EVENTS = new Set([
   'customer.subscription.created',
   'customer.subscription.updated',
-  'customer.subscription.deleted',
   'invoice.paid',
-  'invoice.payment_failed',
 ]);
 
 const COMPLETED = 'checkout.session.completed';
@@ -105,6 +105,36 @@ export class StripeWebhookService {
       return this.handleInvoicePaid(event);
     }
 
+    if (event.type === 'customer.subscription.deleted') {
+      return this.handleSubscriptionDeleted(event);
+    }
+    if (event.type === 'invoice.payment_failed') {
+      return this.handleInvoicePaymentFailed(event);
+    }
+
+    // Donation subscriptions are created with price_data and carry no
+    // lookup_key; routing them through syncStripeData would throw inside
+    // tierForLookupKey. The donation lifecycle is driven entirely by
+    // checkout.session.* and invoice.* events; subscription state changes
+    // are informational here and intentionally a no-op.
+    if (
+      (event.type as string) === 'customer.subscription.created' ||
+      (event.type as string) === 'customer.subscription.updated'
+    ) {
+      const sub = event.data.object as {
+        id: string;
+        metadata?: Record<string, string | undefined> | null;
+      };
+      const subMeta =
+        (sub.metadata as Record<string, string | undefined>) ?? {};
+      if (subMeta.source === 'donation') {
+        this.logger.debug(
+          `${event.type} ${event.id} sub=${sub.id} source=donation; skipping membership sync`,
+        );
+        return { recorded: false };
+      }
+    }
+
     if (SUBSCRIPTION_EVENTS.has(event.type)) {
       const customerId = this.extractCustomerId(event);
       if (!customerId) {
@@ -127,6 +157,13 @@ export class StripeWebhookService {
     const session = event.data.object as CheckoutSessionLike;
     const customerId = this.unwrapId(session.customer);
 
+    // Donation sessions must be intercepted BEFORE the mode-based branches.
+    // A one-time donation also has mode='payment', so without this guard it
+    // would fall through to issueTicketFromSession and mint a free Ticket.
+    if (session.metadata?.source === 'donation') {
+      return this.handleDonationCheckoutCompleted(session, event.id);
+    }
+
     if (session.mode === 'payment') {
       return this.issueTicketFromSession(event.id, session);
     }
@@ -140,6 +177,95 @@ export class StripeWebhookService {
       return { recorded: false };
     }
     await this.memberships.syncStripeData(customerId);
+    return { recorded: false };
+  }
+
+  // Resolves the Donation row for a completed donation Checkout Session and
+  // updates it to reflect the new state:
+  //   - mode=payment  (one-time):   PENDING -> COMPLETED, stamp stripeCustomerId
+  //   - mode=subscription (recurring): stamp stripeCustomerId + stripeSubscriptionId,
+  //     leave status at PENDING (U11 will promote to ACTIVE on invoice.paid)
+  //
+  // Also stamps donationId on the existing PENDING DONATION PaymentEvent that
+  // handleCheckoutCreated wrote with stripeCheckoutSessionId — without this
+  // stamp the Phase D aggregates (raisedCents/donorCount) never resolve for
+  // one-time donations because they JOIN payment_events via donation_id.
+  private async handleDonationCheckoutCompleted(
+    session: CheckoutSessionLike,
+    webhookEventId: string,
+  ): Promise<WebhookHandleResult> {
+    const donationId = session.metadata?.donationId;
+    let donation: { id: string; status: DonationStatus } | null = null;
+
+    if (donationId) {
+      donation = await this.prisma.donation.findUnique({
+        where: { id: donationId },
+        select: { id: true, status: true },
+      });
+    }
+    if (!donation) {
+      // Fallback: match by session id (handles re-deliveries before metadata
+      // was stamped, or edge cases where donationId wasn't set in metadata).
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeCheckoutSessionId: session.id },
+        select: { id: true, status: true },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `checkout.session.completed ${webhookEventId} source=donation but no Donation row found (sessionId=${session.id} donationId=${donationId ?? 'none'}); ignoring`,
+      );
+      return { recorded: false };
+    }
+
+    const stripeCustomerId = this.unwrapId(session.customer);
+    const sessionWithSub = session as CheckoutSessionLike & {
+      subscription?: string | { id: string } | null;
+    };
+
+    if (
+      session.mode === 'payment' &&
+      donation.status === DonationStatus.PENDING
+    ) {
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: {
+          status: DonationStatus.COMPLETED,
+          stripeCustomerId,
+        },
+      });
+    } else if (
+      session.mode === 'subscription' &&
+      donation.status === DonationStatus.PENDING
+    ) {
+      const stripeSubscriptionId = this.unwrapId(sessionWithSub.subscription);
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: {
+          stripeCustomerId,
+          stripeSubscriptionId,
+          // status stays PENDING; U11 promotes to ACTIVE on invoice.paid
+        },
+      });
+    }
+
+    // Stamp donationId on the PENDING DONATION PaymentEvent created by
+    // handleCheckoutCreated. Without this stamp, one-time donations never
+    // appear in raisedCents/donorCount aggregates because those JOIN
+    // payment_events via donation_id (recurring donations get their own
+    // fresh row in U11, but one-time ones only ever have this row).
+    // Use findFirst because stripeCheckoutSessionId is not yet unique on
+    // PaymentEvent.
+    const existingPe = await this.prisma.paymentEvent.findFirst({
+      where: { stripeCheckoutSessionId: session.id, kind: 'DONATION' },
+    });
+    if (existingPe && existingPe.donationId !== donation.id) {
+      await this.prisma.paymentEvent.update({
+        where: { id: existingPe.id },
+        data: { donationId: donation.id },
+      });
+    }
+
     return { recorded: false };
   }
 
@@ -389,6 +515,10 @@ export class StripeWebhookService {
       stripePaymentIntentId: this.unwrapId(session.payment_intent),
       stripeCheckoutSessionId: session.id,
       ticketRequestId: session.metadata?.ticketRequestId ?? null,
+      donationId:
+        kind === PaymentEventKind.DONATION
+          ? (session.metadata?.donationId ?? null)
+          : null,
     });
     return { recorded: false };
   }
@@ -449,6 +579,47 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
+    // Inherit donationId from the original charge PE if it was a DONATION.
+    // Look up once outside the refund loop — all partial refunds share the same PI.
+    const originalPe = await this.prisma.paymentEvent.findFirst({
+      where: {
+        stripePaymentIntentId: piId,
+        kind: {
+          in: [
+            PaymentEventKind.TICKET,
+            PaymentEventKind.MEMBERSHIP,
+            PaymentEventKind.DONATION,
+          ],
+        },
+        status: PaymentEventStatus.SUCCEEDED,
+      },
+      select: { kind: true, donationId: true },
+    });
+    let donationId =
+      originalPe?.kind === PaymentEventKind.DONATION
+        ? originalPe.donationId
+        : null;
+
+    // Guard: if a DISPUTE row for the same PI has already inherited the
+    // donationId, suppress it here to prevent double-deduction. Both a
+    // dispute and a refund on the same PI should only deduct once.
+    if (donationId) {
+      const existingDisputePe = await this.prisma.paymentEvent.findFirst({
+        where: {
+          stripePaymentIntentId: piId,
+          kind: PaymentEventKind.DISPUTE,
+          donationId: { not: null },
+        },
+        select: { id: true },
+      });
+      if (existingDisputePe) {
+        this.logger.warn(
+          `charge.refunded ${event.id} PI=${piId}: dispute already deducted campaign amount; setting REFUND donationId=null to avoid double-deduction`,
+        );
+        donationId = null;
+      }
+    }
+
     const refunds = charge.refunds?.data ?? [];
     for (const r of refunds) {
       await this.paymentEvents.insertRefund(this.prisma, {
@@ -459,6 +630,7 @@ export class StripeWebhookService {
         stripePaymentIntentId: piId,
         stripeRefundId: r.id,
         stripeChargeId: charge.id,
+        donationId,
       });
     }
     return { recorded: false };
@@ -471,19 +643,21 @@ export class StripeWebhookService {
       id: string;
       amount: number;
       currency: string;
-      charge: string;
-      payment_intent?: string | null;
+      charge: string | { id: string };
+      payment_intent?: string | { id: string } | null;
       metadata?: Record<string, string | undefined> | null;
     };
-    this.logger.debug(`charge.dispute.created ${event.id} dispute=${dispute.id}`);
+    this.logger.debug(
+      `charge.dispute.created ${event.id} dispute=${dispute.id}`,
+    );
+    const chargeId = this.unwrapId(dispute.charge) ?? '';
     // Stripe sometimes doesn't propagate metadata onto the dispute — fall
     // back to looking up the charge.
     let userId = dispute.metadata?.userId;
     if (!userId) {
       try {
-        const charge = await this.stripeClient.stripe.charges.retrieve(
-          dispute.charge,
-        );
+        const charge =
+          await this.stripeClient.stripe.charges.retrieve(chargeId);
         userId = (charge.metadata as Record<string, string>)?.userId;
       } catch {
         // fall through to skip
@@ -495,13 +669,58 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
+
+    // Inherit donationId from the original charge PE if it was a DONATION.
+    const piId = this.unwrapId(dispute.payment_intent);
+    let donationId: string | null = null;
+    if (piId) {
+      const originalPe = await this.prisma.paymentEvent.findFirst({
+        where: {
+          stripePaymentIntentId: piId,
+          kind: {
+            in: [
+              PaymentEventKind.TICKET,
+              PaymentEventKind.MEMBERSHIP,
+              PaymentEventKind.DONATION,
+            ],
+          },
+          status: PaymentEventStatus.SUCCEEDED,
+        },
+        select: { kind: true, donationId: true },
+      });
+      if (originalPe?.kind === PaymentEventKind.DONATION) {
+        donationId = originalPe.donationId;
+      }
+
+      // Guard: if a REFUND row for the same PI has already inherited the
+      // donationId, suppress it here to prevent double-deduction.
+      if (donationId) {
+        const existingRefundPe = await this.prisma.paymentEvent.findFirst({
+          where: {
+            stripePaymentIntentId: piId,
+            kind: PaymentEventKind.REFUND,
+            donationId: { not: null },
+          },
+          select: { id: true },
+        });
+        if (existingRefundPe) {
+          this.logger.warn(
+            `charge.dispute.created ${event.id} PI=${piId}: refund already deducted campaign amount; setting DISPUTE donationId=null to avoid double-deduction`,
+          );
+          donationId = null;
+        }
+      }
+    }
+
     await this.paymentEvents.insertDispute(this.prisma, {
       userId,
       amountCents: dispute.amount,
       currency: dispute.currency,
-      stripeChargeId: dispute.charge,
-      stripePaymentIntentId: dispute.payment_intent ?? null,
+      stripeChargeId: chargeId,
+      stripePaymentIntentId: piId,
+      stripeDisputeId: dispute.id,
       description: `Dispute ${dispute.id}`,
+      donationId,
     });
     return { recorded: false };
   }
@@ -510,6 +729,11 @@ export class StripeWebhookService {
   // through checkout.session.created/completed → a PaymentEvent row was
   // ALREADY created there. For renewal invoices (subscription already
   // existed), we insert a new MEMBERSHIP row keyed on the renewal PI.
+  //
+  // Donation subscriptions are intercepted first (before the
+  // subscription_create early-return) because the donation arm must promote
+  // PENDING → ACTIVE on the first invoice even though no new PaymentEvent is
+  // written for that first charge.
   private async handleInvoicePaid(
     event: Stripe.Event,
   ): Promise<WebhookHandleResult> {
@@ -522,10 +746,27 @@ export class StripeWebhookService {
       subscription?: string | null;
       billing_reason?: string;
       metadata?: Record<string, string | undefined> | null;
+      // Stripe puts subscription metadata here in production when the invoice
+      // does not carry its own metadata field (the common case for renewals).
+      subscription_details?: {
+        metadata?: Record<string, string | undefined> | null;
+      } | null;
+      charge?: string | null;
     };
     this.logger.debug(
       `invoice.payment_succeeded ${event.id} invoice=${inv.id} reason=${inv.billing_reason}`,
     );
+
+    const resolvedSubMetadata = await this.resolveInvoiceSubMetadata(
+      inv,
+      event.id,
+    );
+
+    if (resolvedSubMetadata?.source === 'donation') {
+      return this.handleDonationInvoicePaid(inv, resolvedSubMetadata, event.id);
+    }
+
+    // ---- Membership renewal path ----
     if (inv.billing_reason === 'subscription_create') {
       return { recorded: false }; // first invoice; already counted
     }
@@ -535,17 +776,10 @@ export class StripeWebhookService {
       );
       return { recorded: false };
     }
-    let userId: string | undefined = inv.metadata?.userId;
-    if (!userId && inv.subscription) {
-      try {
-        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
-          inv.subscription,
-        );
-        userId = (sub.metadata as Record<string, string>)?.userId;
-      } catch {
-        // fall through
-      }
-    }
+    // resolvedSubMetadata already holds the single retrieve result (if one was
+    // needed). No second retrieve.
+    const userId: string | undefined =
+      inv.metadata?.userId ?? resolvedSubMetadata?.userId;
     if (!userId) {
       this.logger.warn(
         `invoice.payment_succeeded ${event.id} could not resolve userId; skipping`,
@@ -560,6 +794,165 @@ export class StripeWebhookService {
       stripePaymentIntentId: inv.payment_intent,
       stripeInvoiceId: inv.id,
     });
+    return { recorded: false };
+  }
+
+  // Handles invoice.payment_succeeded for donation subscriptions.
+  //
+  // Always promotes Donation PENDING → ACTIVE (covers both the first-invoice
+  // path and the edge case where a renewal arrives before payment_intent.succeeded
+  // flipped the status).
+  //
+  // Does NOT write a new PaymentEvent for billing_reason='subscription_create'
+  // because the checkout-session PaymentEvent (written by handleCheckoutCreated
+  // and stamped with donationId by handleDonationCheckoutCompleted) already
+  // covers that first charge — writing another row here would double-count it.
+  //
+  // For all subsequent invoices (billing_reason !== 'subscription_create') a
+  // fresh kind=DONATION, status=SUCCEEDED PaymentEvent is inserted, idempotent
+  // on stripeInvoiceId.
+  private async handleDonationInvoicePaid(
+    inv: {
+      id: string;
+      amount_paid: number;
+      currency: string;
+      customer: string;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      billing_reason?: string;
+      charge?: string | null;
+    },
+    meta: Record<string, string | undefined>,
+    webhookEventId: string,
+  ): Promise<WebhookHandleResult> {
+    // Resolve the Donation row: prefer explicit donationId in metadata, fall
+    // back to subscription id lookup (covers edge cases where metadata is thin).
+    let donation: {
+      id: string;
+      status: DonationStatus;
+      userId: string;
+      amountCents: number;
+      currency: string;
+    } | null = null;
+
+    if (meta.donationId) {
+      donation = await this.prisma.donation.findFirst({
+        where: { id: meta.donationId },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          amountCents: true,
+          currency: true,
+        },
+      });
+    }
+    if (!donation && inv.subscription) {
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeSubscriptionId: inv.subscription },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          amountCents: true,
+          currency: true,
+        },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `invoice.payment_succeeded ${webhookEventId} source=donation but no Donation row found (donationId=${meta.donationId ?? 'none'} sub=${inv.subscription ?? 'none'}); ignoring`,
+      );
+      return { recorded: false };
+    }
+
+    // Guard: skip replayed invoices against a since-canceled donation so a
+    // historical webhook replay does not pump fresh PaymentEvents into the ledger.
+    if (donation.status === DonationStatus.CANCELED) {
+      this.logger.warn(
+        `invoice.payment_succeeded for canceled donation ${donation.id} (invoice ${inv.id}); skipping`,
+      );
+      return { recorded: false };
+    }
+
+    // Promote PENDING → ACTIVE regardless of billing_reason.
+    if (donation.status === DonationStatus.PENDING) {
+      await this.prisma.donation.update({
+        where: { id: donation.id },
+        data: { status: DonationStatus.ACTIVE },
+      });
+    }
+
+    // First invoice: the original checkout-session PaymentEvent covers this
+    // charge; writing another row here would double-count it.
+    if (inv.billing_reason === 'subscription_create') {
+      return { recorded: false };
+    }
+
+    // Renewal invoice: idempotent on stripeInvoiceId.
+    // If a FAILED row already exists for this invoice (e.g. prior dunning
+    // attempt), upgrade it in place to SUCCEEDED so raisedCents reflects the
+    // actual successful charge. If it's already SUCCEEDED → no-op. If it's
+    // PENDING → unexpected for an invoice-backed row; warn and skip.
+    const existing = await this.prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: inv.id, kind: PaymentEventKind.DONATION },
+    });
+    if (existing) {
+      if (existing.status === PaymentEventStatus.SUCCEEDED) {
+        return { recorded: false };
+      }
+      if (existing.status === PaymentEventStatus.FAILED) {
+        await this.prisma.paymentEvent.update({
+          where: { id: existing.id },
+          data: {
+            status: PaymentEventStatus.SUCCEEDED,
+            succeededAt: new Date(),
+            amountCents: inv.amount_paid,
+            stripePaymentIntentId: inv.payment_intent ?? null,
+            stripeChargeId: inv.charge ?? null,
+            failureReason: null,
+          },
+        });
+        return { recorded: false };
+      }
+      // PENDING is unexpected for an invoice-backed row.
+      this.logger.warn(
+        `invoice.payment_succeeded ${webhookEventId} found existing ${existing.status} PE id=${existing.id} for invoice ${inv.id}; treating as already handled`,
+      );
+      return { recorded: false };
+    }
+
+    // No existing row — create a new SUCCEEDED PaymentEvent.
+    // Wrap in try/catch to handle concurrent redelivery races: two deliveries
+    // both pass the findFirst check (TOCTOU), then both attempt create; the
+    // second hits either the (stripePaymentIntentId, kind) partial unique or
+    // the new (stripeInvoiceId, kind)=DONATION partial unique and throws P2002.
+    try {
+      await this.prisma.paymentEvent.create({
+        data: {
+          organizationId: HOUSE_ORG_ID,
+          userId: donation.userId,
+          kind: PaymentEventKind.DONATION,
+          status: PaymentEventStatus.SUCCEEDED,
+          amountCents: inv.amount_paid,
+          currency: inv.currency,
+          donationId: donation.id,
+          stripeInvoiceId: inv.id,
+          stripePaymentIntentId: inv.payment_intent ?? null,
+          stripeChargeId: inv.charge ?? null,
+          stripeCustomerId: inv.customer,
+          succeededAt: new Date(),
+        },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return { recorded: false };
+      }
+      throw err;
+    }
     return { recorded: false };
   }
 
@@ -653,6 +1046,324 @@ export class StripeWebhookService {
           err instanceof Error ? err.message : String(err)
         }`,
       );
+    }
+  }
+
+  // Resolves subscription metadata from an invoice object using a three-tier
+  // priority: (1) inv.metadata, (2) inv.subscription_details.metadata, (3) a
+  // single subscriptions.retrieve as last resort. Callers that share this
+  // result never need a second retrieve for the same invoice.
+  private async resolveInvoiceSubMetadata(
+    inv: {
+      id: string;
+      subscription?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+      subscription_details?: {
+        metadata?: Record<string, string | undefined> | null;
+      } | null;
+    },
+    webhookEventId: string,
+  ): Promise<Record<string, string | undefined> | null> {
+    const invMeta = inv.metadata ?? null;
+    const detailsMeta = inv.subscription_details?.metadata ?? null;
+
+    if (invMeta?.source || invMeta?.userId) {
+      return invMeta;
+    }
+    if (detailsMeta?.source || detailsMeta?.userId) {
+      return detailsMeta;
+    }
+    if (inv.subscription) {
+      try {
+        const sub = await this.stripeClient.stripe.subscriptions.retrieve(
+          inv.subscription,
+        );
+        return sub.metadata ?? null;
+      } catch (err) {
+        this.logger.warn(
+          `${webhookEventId} could not retrieve subscription ${inv.subscription}: ${err instanceof Error ? err.message : String(err)}; continuing without sub metadata`,
+        );
+      }
+    }
+    return null;
+  }
+
+  // customer.subscription.deleted: donation subscriptions flip to CANCELED;
+  // non-donation subscriptions route to syncStripeData (membership path).
+  private async handleSubscriptionDeleted(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const sub = event.data.object as {
+      id: string;
+      customer?: string | { id: string } | null;
+      metadata?: Record<string, string | undefined> | null;
+    };
+    const meta = (sub.metadata as Record<string, string | undefined>) ?? {};
+
+    if (meta.source === 'donation') {
+      await this.handleDonationSubscriptionDeleted(sub, meta);
+      return { recorded: false };
+    }
+
+    // Non-donation subscription: membership sync path.
+    const customerId = this.unwrapId(sub.customer);
+    if (!customerId) {
+      this.logger.warn(
+        `customer.subscription.deleted ${event.id} sub=${sub.id} has no resolvable customer id; skipping sync`,
+      );
+      return { recorded: false };
+    }
+    await this.memberships.syncStripeData(customerId);
+    return { recorded: false };
+  }
+
+  private async handleDonationSubscriptionDeleted(
+    sub: { id: string },
+    meta: Record<string, string | undefined>,
+  ): Promise<void> {
+    let donation: {
+      id: string;
+      status: DonationStatus;
+      canceledAt: Date | null;
+      stripeSubscriptionId: string | null;
+    } | null = null;
+
+    if (meta.donationId) {
+      const candidate = await this.prisma.donation.findUnique({
+        where: { id: meta.donationId },
+        select: {
+          id: true,
+          status: true,
+          canceledAt: true,
+          stripeSubscriptionId: true,
+        },
+      });
+      if (
+        candidate &&
+        candidate.stripeSubscriptionId &&
+        candidate.stripeSubscriptionId !== sub.id
+      ) {
+        // Stripe metadata is editable in Dashboard — fall back to the
+        // server-stored linkage (stripeSubscriptionId) as the trusted source.
+        this.logger.warn(
+          `customer.subscription.deleted source=donation: meta.donationId=${meta.donationId} points to donation with stripeSubscriptionId=${candidate.stripeSubscriptionId}, but webhook sub=${sub.id}; falling back to sub-id lookup`,
+        );
+      } else {
+        donation = candidate;
+      }
+    }
+    if (!donation) {
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeSubscriptionId: sub.id },
+        select: {
+          id: true,
+          status: true,
+          canceledAt: true,
+          stripeSubscriptionId: true,
+        },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `customer.subscription.deleted source=donation but no Donation row found (donationId=${meta.donationId ?? 'none'} sub=${sub.id}); ignoring`,
+      );
+      return;
+    }
+
+    // Idempotency: already-CANCELED rows are a no-op. canceledAt is NOT
+    // re-stamped — the synchronous cancel in the billing controller already
+    // set it; the webhook lands after and must leave it untouched.
+    if (donation.status === DonationStatus.CANCELED) {
+      return;
+    }
+
+    await this.prisma.donation.update({
+      where: { id: donation.id },
+      data: { status: DonationStatus.CANCELED, canceledAt: new Date() },
+    });
+  }
+
+  // invoice.payment_failed: donation invoices write a FAILED PaymentEvent;
+  // non-donation invoices route to syncStripeData (membership path).
+  // Donation.status is intentionally left unchanged — Stripe retries; only
+  // customer.subscription.deleted flips a donation to CANCELED.
+  private async handleInvoicePaymentFailed(
+    event: Stripe.Event,
+  ): Promise<WebhookHandleResult> {
+    const inv = event.data.object as {
+      id: string;
+      amount_due: number;
+      currency: string;
+      customer: string | { id: string } | null;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      metadata?: Record<string, string | undefined> | null;
+      subscription_details?: {
+        metadata?: Record<string, string | undefined> | null;
+      } | null;
+      last_finalization_error?: { message?: string } | null;
+    };
+
+    // Inspect inline metadata directly — no retrieve needed here. Membership
+    // failed invoices carry no source; routing them through
+    // resolveInvoiceSubMetadata would fire a subscriptions.retrieve on every
+    // dunning retry even though the membership path only needs inv.customer.
+    // The donation FAILED path only reaches handleDonationInvoiceFailed when
+    // inline metadata (inv.metadata or subscription_details.metadata) already
+    // identifies the invoice as a donation.
+    const invMeta = inv.metadata ?? null;
+    const detailsMeta = inv.subscription_details?.metadata ?? null;
+    const sourceMeta =
+      invMeta?.source === 'donation'
+        ? invMeta
+        : detailsMeta?.source === 'donation'
+          ? detailsMeta
+          : null;
+
+    if (sourceMeta) {
+      const invForFailed = inv as {
+        id: string;
+        amount_due: number;
+        currency: string;
+        customer: string;
+        payment_intent?: string | null;
+        subscription?: string | null;
+        last_finalization_error?: { message?: string } | null;
+      };
+      await this.handleDonationInvoiceFailed(
+        invForFailed,
+        sourceMeta,
+        event.id,
+      );
+      return { recorded: false };
+    }
+
+    // Non-donation invoice: membership sync path. unwrapId guards against an
+    // expanded customer object if expand: ['customer'] is ever added.
+    const customerId = this.unwrapId(inv.customer);
+    if (!customerId) {
+      this.logger.warn(
+        `invoice.payment_failed ${event.id} inv=${inv.id} has no resolvable customer id; skipping sync`,
+      );
+      return { recorded: false };
+    }
+    await this.memberships.syncStripeData(customerId);
+    return { recorded: false };
+  }
+
+  private async handleDonationInvoiceFailed(
+    inv: {
+      id: string;
+      amount_due: number;
+      currency: string;
+      customer: string;
+      payment_intent?: string | null;
+      subscription?: string | null;
+      last_finalization_error?: { message?: string } | null;
+    },
+    meta: Record<string, string | undefined>,
+    webhookEventId: string,
+  ): Promise<void> {
+    let donation: {
+      id: string;
+      status: DonationStatus;
+      userId: string;
+      stripeSubscriptionId: string | null;
+    } | null = null;
+
+    if (meta.donationId) {
+      const candidate = await this.prisma.donation.findFirst({
+        where: { id: meta.donationId },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          stripeSubscriptionId: true,
+        },
+      });
+      if (
+        candidate &&
+        candidate.stripeSubscriptionId &&
+        inv.subscription &&
+        candidate.stripeSubscriptionId !== inv.subscription
+      ) {
+        // Stripe metadata is editable in Dashboard — fall back to the
+        // server-stored linkage (stripeSubscriptionId) as the trusted source.
+        this.logger.warn(
+          `invoice.payment_failed ${webhookEventId} inv=${inv.id}: meta.donationId=${meta.donationId} points to donation with stripeSubscriptionId=${candidate.stripeSubscriptionId}, but webhook inv.subscription=${inv.subscription}; falling back to sub-id lookup`,
+        );
+      } else {
+        donation = candidate;
+      }
+    }
+    if (!donation && inv.subscription) {
+      donation = await this.prisma.donation.findFirst({
+        where: { stripeSubscriptionId: inv.subscription },
+        select: {
+          id: true,
+          status: true,
+          userId: true,
+          stripeSubscriptionId: true,
+        },
+      });
+    }
+    if (!donation) {
+      this.logger.warn(
+        `invoice.payment_failed ${webhookEventId} inv=${inv.id} source=donation but no Donation row found (donationId=${meta.donationId ?? 'none'} sub=${inv.subscription ?? 'none'}); ignoring`,
+      );
+      return;
+    }
+
+    // Guard: CANCELED donations do not receive new FAILED events — stray
+    // replays of historical invoices must not pump entries into the ledger.
+    if (donation.status === DonationStatus.CANCELED) {
+      this.logger.warn(
+        `invoice.payment_failed for canceled donation ${donation.id} (invoice ${inv.id}); skipping`,
+      );
+      return;
+    }
+
+    // Dedupe: if any DONATION PE already exists for this invoice, return.
+    // The new partial unique index (stripe_invoice_id, kind) WHERE kind='DONATION'
+    // catches concurrent re-deliveries at the DB level; this findFirst is the
+    // fast-path that avoids an unnecessary insert attempt.
+    const existing = await this.prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: inv.id, kind: PaymentEventKind.DONATION },
+    });
+    if (existing) {
+      return;
+    }
+
+    // Donation.status is intentionally NOT updated — Stripe retries failed
+    // invoices; only customer.subscription.deleted should flip to CANCELED.
+    // Stripe always carries amount_due and currency on failed invoices, so
+    // the inline cast above types them as non-null and no fallback is needed.
+    try {
+      await this.prisma.paymentEvent.create({
+        data: {
+          organizationId: HOUSE_ORG_ID,
+          userId: donation.userId,
+          kind: PaymentEventKind.DONATION,
+          status: PaymentEventStatus.FAILED,
+          amountCents: inv.amount_due,
+          currency: inv.currency,
+          donationId: donation.id,
+          stripeInvoiceId: inv.id,
+          stripePaymentIntentId: this.unwrapId(inv.payment_intent),
+          stripeCustomerId: inv.customer,
+          failureReason: inv.last_finalization_error?.message ?? null,
+        },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        // Either the PI-based or the new invoice-based partial unique fired
+        // on a concurrent redelivery race — both mean "already written".
+        return;
+      }
+      throw err;
     }
   }
 

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
+import { DonationsModule } from './donations/donations.module';
 import { EventLabelsModule } from './event-labels/event-labels.module';
 import { EventsModule } from './events/events.module';
 import { MailModule } from './mail/mail.module';
@@ -36,6 +37,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PrismaModule,
     AuthModule,
     BillingModule,
+    DonationsModule,
     MailModule,
     MembershipsModule,
     OrganizationsModule,
