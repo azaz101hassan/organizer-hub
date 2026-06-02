@@ -137,9 +137,9 @@ export class CampaignsService {
     select: { id: true, slug: true, name: true, status: true },
   } as const;
 
-  async listAllForAdmin(organizationId: string) {
+  async listAllForAdmin(organizationId: string, filters: { coalitionId?: string } = {}) {
     return this.prisma.campaign.findMany({
-      where: { organizationId },
+      where: { organizationId, ...(filters.coalitionId ? { coalitionId: filters.coalitionId } : {}) },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
       include: { coalition: this.coalitionSelect },
     });

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { OrganizationRole } from '@organizer-hub/db/api';
@@ -15,6 +16,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
+import { ListCampaignsAdminDto } from './dto/list-campaigns-admin.dto';
 import { TransitionCampaignDto } from './dto/transition-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -28,8 +30,8 @@ export class AdminCampaignsController {
 
   @Get()
   @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
-  list(@Param('orgId') orgId: string) {
-    return this.campaigns.listAllForAdmin(orgId);
+  list(@Param('orgId') orgId: string, @Query() query: ListCampaignsAdminDto) {
+    return this.campaigns.listAllForAdmin(orgId, query);
   }
 
   @Get(':id')

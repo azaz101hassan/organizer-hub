@@ -94,6 +94,65 @@ describe('Admin campaigns API', () => {
       expect(item).toBeDefined();
       expect(item?.status).toBe('DRAFT');
     });
+
+    it('filter match: returns only campaigns under the specified coalitionId', async () => {
+      // Seed a second coalition and a campaign under it
+      const secondCoalition = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_filter_match_1',
+          organizationId: ORG_ID,
+          slug: 'filter-match-coalition',
+          name: 'Filter Match Coalition',
+          status: 'ACTIVE',
+        }),
+      });
+      const secondCampaign = await prisma.campaign.create({
+        data: campaignFactory({
+          id: 'camp_filter_match_1',
+          organizationId: ORG_ID,
+          coalitionId: secondCoalition.id,
+          slug: 'filter-match-campaign',
+          name: 'Filter Match Campaign',
+          status: 'DRAFT',
+        }),
+      });
+
+      try {
+        const res = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns?coalitionId=${secondCoalition.id}`)
+          .expect(200);
+
+        expect(Array.isArray(res.body)).toBe(true);
+        const ids = (res.body as { id: string }[]).map((c) => c.id);
+        expect(ids).toContain(secondCampaign.id);
+        expect(ids).not.toContain(campaignId);
+        expect(res.body).toHaveLength(1);
+      } finally {
+        await prisma.campaign.delete({ where: { id: secondCampaign.id } }).catch(() => {});
+        await prisma.coalition.delete({ where: { id: secondCoalition.id } }).catch(() => {});
+      }
+    });
+
+    it('filter no-match: returns empty array when coalitionId matches no campaigns', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?coalitionId=nonexistent-cuid-value`)
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(0);
+    });
+
+    it('filter validation: returns 400 when coalitionId is an empty string', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?coalitionId=`)
+        .expect(400);
+    });
+
+    it('forbidNonWhitelisted: returns 400 when an unknown query field is sent', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?unknownField=foo`)
+        .expect(400);
+    });
   });
 
   describe('GET /orgs/:orgId/campaigns/:id', () => {
