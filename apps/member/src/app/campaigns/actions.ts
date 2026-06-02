@@ -57,6 +57,14 @@ export async function donateNow(
   redirect(url);
 }
 
+function cancelDonationErrorMessage(status: number): string {
+  if (status === 404) return "We couldn't find that donation.";
+  if (status === 409) return "This donation is no longer active.";
+  if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+  if (status >= 500) return "Something went wrong on our end. Please try again.";
+  return "We couldn't cancel that donation. Please try again.";
+}
+
 export async function cancelDonation(
   donationId: string,
 ): Promise<{ ok: true } | { error: string }> {
@@ -68,7 +76,9 @@ export async function cancelDonation(
     return { ok: true };
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
-    if (err instanceof ApiError) return { error: err.message };
+    if (err instanceof ApiError) {
+      return { error: cancelDonationErrorMessage(err.status) };
+    }
     throw err;
   }
 }

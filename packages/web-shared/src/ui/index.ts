@@ -37,6 +37,7 @@ export { ProgressBar, type ProgressBarProps } from "./data/ProgressBar";
 export { DonatePanel, type DonatePanelProps, type DonationCadence } from "./donations/DonatePanel";
 export { CoalitionCard, type CoalitionCardProps } from "./donations/CoalitionCard";
 export { CampaignCard, type CampaignCardProps } from "./donations/CampaignCard";
+export { formatCurrencyPrefix } from "./donations/currency";
 
 // Navigation
 export { NavLink } from "./nav/NavLink";
