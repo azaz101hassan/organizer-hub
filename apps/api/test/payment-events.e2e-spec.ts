@@ -372,5 +372,12 @@ describe('PaymentEvents (e2e)', () => {
       expect(body.items).toHaveLength(1);
       expect(body.items[0].id).toBe(peA.id);
     });
+
+    it('returns 400 when kind is non-DONATION combined with campaignId', async () => {
+      currentSub.value = 'admin-sub';
+      await request(app.getHttpServer())
+        .get(`/payment-events?organizationId=${orgId}&kind=TICKET&campaignId=any-id`)
+        .expect(400);
+    });
   });
 });

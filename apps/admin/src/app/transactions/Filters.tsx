@@ -55,11 +55,15 @@ export default function Filters({
     return `/transactions${str ? `?${str}` : ""}`;
   }
 
-  // Kind chips: when clicking a non-DONATION kind while recurringOnly=true is
-  // active, drop recurringOnly to keep the URL API-valid.
+  // Kind chips: switching to a non-DONATION kind must drop both donation-dependent
+  // filters (recurringOnly and campaignId) to keep the URL API-valid.
   function kindHref(value: string | undefined) {
-    if (params.recurringOnly === "true" && value !== "DONATION") {
-      return hrefWithMany({ kind: value, recurringOnly: undefined });
+    if (value !== "DONATION") {
+      return hrefWithMany({
+        kind: value,
+        recurringOnly: undefined,
+        campaignId: undefined,
+      });
     }
     return hrefWith("kind", value);
   }
