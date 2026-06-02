@@ -40,7 +40,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
   }
 
   function handleBackdropClick(e: React.MouseEvent<HTMLDialogElement>) {
-    if (e.target === dialogRef.current) {
+    if (e.target === dialogRef.current && !pending) {
       dialogRef.current?.close();
     }
   }
@@ -152,7 +152,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
               type="number"
               required
               min={1}
-              max={21474836}
+              max={21474836.47}
               step="0.01"
               placeholder="e.g. 1000"
               defaultValue={state.values?.target ?? ""}
@@ -191,6 +191,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
                   : ""
               }
               disabled={pending}
+              error={state.fieldErrors?.displayOrder}
             />
 
             {state.error && (

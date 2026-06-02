@@ -81,6 +81,7 @@ export default function CoalitionEditForm({ coalition }: CoalitionEditFormProps)
               : ""
         }
         disabled={pending}
+        error={state.fieldErrors?.displayOrder}
       />
 
       {state.error && (

@@ -45,11 +45,15 @@ interface CampaignRow {
   deadline?: string | null;
 }
 
-function fmtDate(iso: string) {
+// Deadline values come from a YYYY-MM-DD <input type="date">, parsed by the API
+// as UTC midnight. Render with timeZone UTC so a PST admin reads back the same
+// calendar date they typed in — not the previous day due to local-offset shift.
+function fmtDeadline(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -146,7 +150,7 @@ export default async function CoalitionDetailPage({
       width: 120,
       cell: (c) => (
         <span className="faint" style={{ fontSize: 12 }}>
-          {c.deadline ? fmtDate(c.deadline) : "—"}
+          {c.deadline ? fmtDeadline(c.deadline) : "—"}
         </span>
       ),
     },

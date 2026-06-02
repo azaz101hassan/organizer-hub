@@ -57,9 +57,22 @@ export async function updateCoalition(
   const description = String(formData.get("description") ?? "").trim() || undefined;
   const coverImageUrl = String(formData.get("coverImageUrl") ?? "").trim() || undefined;
   const displayOrderRaw = String(formData.get("displayOrder") ?? "");
-  const displayOrder = displayOrderRaw ? Number(displayOrderRaw) : undefined;
+  let displayOrder: number | undefined;
+  let displayOrderFieldError: string | undefined;
+  if (displayOrderRaw) {
+    const parsed = Number(displayOrderRaw);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0 || parsed > 9999) {
+      displayOrderFieldError = "Display order must be a whole number between 0 and 9999.";
+    } else {
+      displayOrder = parsed;
+    }
+  }
 
-  const fieldErrors = validateCoalitionFields(name, slug);
+  const coalitionFieldErrors = validateCoalitionFields(name, slug);
+  const fieldErrors =
+    coalitionFieldErrors || displayOrderFieldError
+      ? { ...coalitionFieldErrors, ...(displayOrderFieldError ? { displayOrder: displayOrderFieldError } : {}) }
+      : undefined;
   if (fieldErrors) {
     return { fieldErrors, values: { name, slug, description, coverImageUrl, displayOrder } };
   }
@@ -192,7 +205,16 @@ export async function createCampaign(
   const deadlineRaw = String(formData.get("deadline") ?? "").trim();
   const deadline = deadlineRaw || undefined;
   const displayOrderRaw = String(formData.get("displayOrder") ?? "");
-  const displayOrder = displayOrderRaw ? Number(displayOrderRaw) : undefined;
+  let displayOrder: number | undefined;
+  let displayOrderFieldError: string | undefined;
+  if (displayOrderRaw) {
+    const parsed = Number(displayOrderRaw);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0 || parsed > 9999) {
+      displayOrderFieldError = "Display order must be a whole number between 0 and 9999.";
+    } else {
+      displayOrder = parsed;
+    }
+  }
 
   const preserved: CampaignCreateFormState["values"] = {
     name,
@@ -205,13 +227,17 @@ export async function createCampaign(
     displayOrder,
   };
 
-  const { fieldErrors, targetAmountCents } = validateCampaignFields(
+  const { fieldErrors: campaignFieldErrors, targetAmountCents } = validateCampaignFields(
     name,
     slug,
     targetRaw,
     coverImageUrl,
     currencyRaw || undefined,
   );
+  const fieldErrors =
+    campaignFieldErrors || displayOrderFieldError
+      ? { ...campaignFieldErrors, ...(displayOrderFieldError ? { displayOrder: displayOrderFieldError } : {}) }
+      : undefined;
   if (fieldErrors) {
     return { fieldErrors, values: preserved };
   }
@@ -234,11 +260,26 @@ export async function createCampaign(
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError) {
-      const message =
-        err.status === 409
-          ? "A campaign with that slug already exists."
-          : `Could not save changes (${err.status}).`;
-      return { error: message, values: preserved };
+      if (err.status === 409) {
+        // The API returns two distinct 409s: slug collision and archived parent.
+        // Surface the API's message so the admin sees the real cause rather than
+        // a misleading "slug already exists" message in the archived-parent case.
+        let message: string;
+        try {
+          const parsed: unknown = JSON.parse(err.body);
+          message =
+            typeof parsed === "object" &&
+            parsed !== null &&
+            "message" in parsed &&
+            typeof (parsed as { message: unknown }).message === "string"
+              ? (parsed as { message: string }).message
+              : "Could not create the campaign — please reload and try again.";
+        } catch {
+          message = "Could not create the campaign — please reload and try again.";
+        }
+        return { error: message, values: preserved };
+      }
+      return { error: `Could not save changes (${err.status}).`, values: preserved };
     }
     throw err;
   }
