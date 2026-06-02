@@ -23,7 +23,7 @@ interface FilterParams {
   recurringOnly?: string;
 }
 
-interface CampaignOption {
+export interface CampaignOption {
   id: string;
   name: string;
 }
@@ -40,13 +40,7 @@ export default function Filters({
   const router = useRouter();
 
   function hrefWith(key: keyof FilterParams, value: string | undefined) {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v && k !== key && k !== "cursor") qs.set(k, v);
-    }
-    if (value) qs.set(key, value);
-    const str = qs.toString();
-    return `/transactions${str ? `?${str}` : ""}`;
+    return hrefWithMany({ [key]: value });
   }
 
   function hrefWithMany(updates: Partial<FilterParams>) {
@@ -79,14 +73,7 @@ export default function Filters({
   }
 
   function onCampaignChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value;
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v && k !== "cursor" && k !== "campaignId") qs.set(k, v);
-    }
-    if (value) qs.set("campaignId", value);
-    const str = qs.toString();
-    router.push(`/transactions${str ? `?${str}` : ""}`);
+    router.push(hrefWithMany({ campaignId: e.target.value || undefined }));
   }
 
   const csvHref = (() => {
@@ -167,7 +154,7 @@ function FilterChip({
   children: React.ReactNode;
 }) {
   return (
-    <Link href={href} className={active ? "chip chip--active" : "chip"}>
+    <Link href={href} className={active ? "chip chip--active" : "chip"} aria-pressed={active}>
       {children}
     </Link>
   );

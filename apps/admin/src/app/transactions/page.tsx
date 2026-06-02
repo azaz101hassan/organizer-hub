@@ -8,7 +8,7 @@ import {
   type PaymentEventListPage,
 } from "@organizer-hub/web-shared";
 import { PageHead } from "../../components/PageHead";
-import Filters from "./Filters";
+import Filters, { CampaignOption } from "./Filters";
 import TransactionsTable from "./TransactionsTable";
 
 interface SearchParams {
@@ -20,11 +20,6 @@ interface SearchParams {
   to?: string;
   campaignId?: string;
   recurringOnly?: string;
-}
-
-interface CampaignOption {
-  id: string;
-  name: string;
 }
 
 export const dynamic = "force-dynamic";
