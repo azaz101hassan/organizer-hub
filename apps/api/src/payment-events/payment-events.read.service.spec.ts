@@ -1,6 +1,9 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
+  DonationCadence,
+  DonationMode,
+  DonationStatus,
   OrganizationRole,
   PaymentEventKind,
   PaymentEventStatus,
@@ -23,6 +26,9 @@ describe('PaymentEventsReadService', () => {
 
     // Clean up in FK-safe order
     await prisma.paymentEvent.deleteMany();
+    await prisma.donation.deleteMany({ where: { organizationId: { startsWith: 'org_test_' } } });
+    await prisma.campaign.deleteMany({ where: { organizationId: { startsWith: 'org_test_' } } });
+    await prisma.coalition.deleteMany({ where: { organizationId: { startsWith: 'org_test_' } } });
     await prisma.organizationMember.deleteMany({
       where: { organizationId: { startsWith: 'org_test_' } },
     });
@@ -34,6 +40,55 @@ describe('PaymentEventsReadService', () => {
   afterAll(async () => prisma.$disconnect());
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  async function seedCampaign(orgSuffix: string, opts: { slug: string }) {
+    const coalition = await prisma.coalition.create({
+      data: {
+        organizationId: `org_test_${orgSuffix}`,
+        name: `Coalition-${opts.slug}`,
+        slug: `coalition-${opts.slug}`,
+      },
+    });
+    return prisma.campaign.create({
+      data: {
+        organizationId: `org_test_${orgSuffix}`,
+        coalitionId: coalition.id,
+        name: `Campaign-${opts.slug}`,
+        slug: opts.slug,
+        targetAmountCents: 100_000,
+      },
+    });
+  }
+
+  async function seedDonationPE(opts: {
+    userId: string;
+    organizationId: string;
+    campaignId: string;
+    mode: DonationMode;
+  }) {
+    const donation = await prisma.donation.create({
+      data: {
+        organizationId: opts.organizationId,
+        userId: opts.userId,
+        campaignId: opts.campaignId,
+        mode: opts.mode,
+        cadence: opts.mode === DonationMode.RECURRING ? DonationCadence.MONTHLY : DonationCadence.ONCE,
+        amountCents: 2500,
+        status: opts.mode === DonationMode.RECURRING ? DonationStatus.ACTIVE : DonationStatus.COMPLETED,
+      },
+    });
+    return prisma.paymentEvent.create({
+      data: {
+        organizationId: opts.organizationId,
+        userId: opts.userId,
+        kind: PaymentEventKind.DONATION,
+        status: PaymentEventStatus.SUCCEEDED,
+        amountCents: 2500,
+        currency: 'usd',
+        donationId: donation.id,
+      },
+    });
+  }
 
   async function seedOrg(suffix: string) {
     return prisma.organization.create({
@@ -98,6 +153,49 @@ describe('PaymentEventsReadService', () => {
     expect(result.items[0].kind).toBe(PaymentEventKind.REFUND);
   });
 
+  it('listForUser filters by campaignId', async () => {
+    await seedOrg('fid-camp');
+    const campA = await seedCampaign('fid-camp', { slug: 'camp-a' });
+    const campB = await seedCampaign('fid-camp', { slug: 'camp-b' });
+    const peA = await seedDonationPE({
+      userId: 'user_a',
+      organizationId: 'org_test_fid-camp',
+      campaignId: campA.id,
+      mode: DonationMode.ONE_TIME,
+    });
+    await seedDonationPE({
+      userId: 'user_a',
+      organizationId: 'org_test_fid-camp',
+      campaignId: campB.id,
+      mode: DonationMode.ONE_TIME,
+    });
+
+    const result = await service.listForUser('user_a', { campaignId: campA.id });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(peA.id);
+  });
+
+  it('listForUser filters by recurringOnly=true', async () => {
+    await seedOrg('fid-recur');
+    const camp = await seedCampaign('fid-recur', { slug: 'camp-recur' });
+    await seedDonationPE({
+      userId: 'user_a',
+      organizationId: 'org_test_fid-recur',
+      campaignId: camp.id,
+      mode: DonationMode.ONE_TIME,
+    });
+    const peRecurring = await seedDonationPE({
+      userId: 'user_a',
+      organizationId: 'org_test_fid-recur',
+      campaignId: camp.id,
+      mode: DonationMode.RECURRING,
+    });
+
+    const result = await service.listForUser('user_a', { recurringOnly: 'true' });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(peRecurring.id);
+  });
+
   it('listForUser paginates with cursor', async () => {
     for (let i = 0; i < 25; i++) {
       await seedPaymentEvent({ userId: 'user_a' });
@@ -143,6 +241,32 @@ describe('PaymentEventsReadService', () => {
       organizationId: 'org_test_admin-list',
     });
     expect(result.items).toHaveLength(2);
+  });
+
+  it('listForAdmin filters by campaignId', async () => {
+    await seedOrg('admin-camp');
+    await seedMember('org_test_admin-camp', 'user_admin', OrganizationRole.ADMIN);
+    const campA = await seedCampaign('admin-camp', { slug: 'adm-camp-a' });
+    const campB = await seedCampaign('admin-camp', { slug: 'adm-camp-b' });
+    const peA = await seedDonationPE({
+      userId: 'user_x',
+      organizationId: 'org_test_admin-camp',
+      campaignId: campA.id,
+      mode: DonationMode.ONE_TIME,
+    });
+    await seedDonationPE({
+      userId: 'user_y',
+      organizationId: 'org_test_admin-camp',
+      campaignId: campB.id,
+      mode: DonationMode.ONE_TIME,
+    });
+
+    const result = await service.listForAdmin('user_admin', {
+      organizationId: 'org_test_admin-camp',
+      campaignId: campA.id,
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(peA.id);
   });
 
   // ─── getDetail ───────────────────────────────────────────────────────────────
