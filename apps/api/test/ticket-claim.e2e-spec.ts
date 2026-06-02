@@ -19,6 +19,7 @@ import {
   type SubHolder,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { FUTURE_EVENT_DATE } from './helpers/dates';
 import { jsonBody } from './helpers/http';
 
 interface CoverageResult {
@@ -55,7 +56,7 @@ async function seedEventWithTicketType(
       organizationId: args.orgId,
       title: args.eventSlug,
       slug: args.eventSlug,
-      startsAt: new Date('2026-06-01T18:00:00Z'),
+      startsAt: FUTURE_EVENT_DATE,
       status: args.eventStatus ?? EventStatus.PUBLISHED,
       publishedAt:
         (args.eventStatus ?? EventStatus.PUBLISHED) === EventStatus.PUBLISHED

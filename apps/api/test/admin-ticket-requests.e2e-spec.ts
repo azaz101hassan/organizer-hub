@@ -21,6 +21,7 @@ import {
 } from './helpers/boot-test-app';
 import { FakeMailer } from './helpers/fake-mailer';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { FUTURE_EVENT_DATE } from './helpers/dates';
 import { jsonBody } from './helpers/http';
 
 const REQUESTER = 'buyer-1';
@@ -92,7 +93,7 @@ describe('Admin ticket requests (e2e)', () => {
         organizationId: orgId,
         title: 'Spring Gala',
         slug: 'spring-gala',
-        startsAt: new Date('2026-06-01T18:00:00Z'),
+        startsAt: FUTURE_EVENT_DATE,
         createdBy: 'owner-sub',
       },
     });

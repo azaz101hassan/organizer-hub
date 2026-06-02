@@ -8,6 +8,10 @@ import {
   makeSubHolder,
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
+import {
+  FUTURE_EVENT_DATE_ISO,
+  FUTURE_EVENT_DATE_ALT_ISO,
+} from './helpers/dates';
 import { jsonBody } from './helpers/http';
 
 const currentSub = makeSubHolder('owner-sub');
@@ -65,7 +69,7 @@ describe('Events (e2e)', () => {
         .post(`/organizations/${orgId}/events`)
         .send({
           title: 'Spring Gala',
-          startsAt: '2026-06-01T18:00:00.000Z',
+          startsAt: FUTURE_EVENT_DATE_ISO,
         })
         .expect(201);
       expect(res.body).toMatchObject({
@@ -105,8 +109,8 @@ describe('Events (e2e)', () => {
         .post(`/organizations/${orgId}/events`)
         .send({
           title: 'Bad Range',
-          startsAt: '2026-06-01T18:00:00.000Z',
-          endsAt: '2026-06-01T17:00:00.000Z',
+          startsAt: FUTURE_EVENT_DATE_ISO,
+          endsAt: '2099-06-01T17:00:00.000Z',
         })
         .expect(400);
     });
@@ -114,7 +118,7 @@ describe('Events (e2e)', () => {
     it('rejects empty title with 400', async () => {
       await request(app.getHttpServer())
         .post(`/organizations/${orgId}/events`)
-        .send({ title: '', startsAt: '2026-06-01T18:00:00.000Z' })
+        .send({ title: '', startsAt: FUTURE_EVENT_DATE_ISO })
         .expect(400);
     });
 
@@ -128,11 +132,11 @@ describe('Events (e2e)', () => {
     it('suffixes slug on collision within same org', async () => {
       await request(app.getHttpServer())
         .post(`/organizations/${orgId}/events`)
-        .send({ title: 'Spring Gala', startsAt: '2026-06-01T18:00:00.000Z' })
+        .send({ title: 'Spring Gala', startsAt: FUTURE_EVENT_DATE_ISO })
         .expect(201);
       const res = await request(app.getHttpServer())
         .post(`/organizations/${orgId}/events`)
-        .send({ title: 'Spring Gala', startsAt: '2026-06-02T18:00:00.000Z' })
+        .send({ title: 'Spring Gala', startsAt: FUTURE_EVENT_DATE_ALT_ISO })
         .expect(201);
       expect(jsonBody<{ slug: string }>(res).slug).toMatch(
         /^spring-gala-[0-9a-f]{4}$/,
@@ -142,13 +146,13 @@ describe('Events (e2e)', () => {
     it('allows same slug across different orgs', async () => {
       await request(app.getHttpServer())
         .post(`/organizations/${orgId}/events`)
-        .send({ title: 'Spring Gala', startsAt: '2026-06-01T18:00:00.000Z' })
+        .send({ title: 'Spring Gala', startsAt: FUTURE_EVENT_DATE_ISO })
         .expect(201);
 
       currentSub.value = 'other-owner';
       const res = await request(app.getHttpServer())
         .post(`/organizations/${otherOrgId}/events`)
-        .send({ title: 'Spring Gala', startsAt: '2026-06-01T18:00:00.000Z' })
+        .send({ title: 'Spring Gala', startsAt: FUTURE_EVENT_DATE_ISO })
         .expect(201);
       expect(jsonBody<{ slug: string }>(res).slug).toBe('spring-gala');
     });

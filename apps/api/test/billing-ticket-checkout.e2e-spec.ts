@@ -21,6 +21,7 @@ import {
   type SubHolder,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { FUTURE_EVENT_DATE } from './helpers/dates';
 import { jsonBody } from './helpers/http';
 
 const USER = 'user-ticket-1';
@@ -69,7 +70,7 @@ describe('Billing ticket checkout (e2e)', () => {
         organizationId: orgId,
         title: 'Spring Gala',
         slug: 'spring-gala',
-        startsAt: new Date('2026-06-01T18:00:00Z'),
+        startsAt: FUTURE_EVENT_DATE,
         status: EventStatus.PUBLISHED,
         publishedAt: new Date(),
         createdBy: USER,

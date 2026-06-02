@@ -15,6 +15,7 @@ import {
   stubJwtAuthGuard,
 } from './helpers/boot-test-app';
 import { FakeStripeClient } from './helpers/fake-stripe';
+import { FUTURE_EVENT_DATE } from './helpers/dates';
 
 const currentSub = makeSubHolder('owner-sub');
 
@@ -47,7 +48,7 @@ describe('TicketRequest core (e2e)', () => {
         organizationId: org.id,
         title: 'Spring Gala',
         slug: 'spring-gala',
-        startsAt: new Date('2026-06-01T18:00:00Z'),
+        startsAt: FUTURE_EVENT_DATE,
         createdBy: 'owner-sub',
       },
     });
