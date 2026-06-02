@@ -46,7 +46,7 @@ function parseCustomCents(raw: string): number | undefined {
 
 function sanitizeInitialChip(value: number | undefined): number | undefined {
   if (value === undefined) return undefined;
-  if (!Number.isInteger(value) || value < MIN_CENTS) return undefined;
+  if (!Number.isSafeInteger(value) || value < MIN_CENTS) return undefined;
   return value;
 }
 

@@ -167,6 +167,12 @@ describe("DonatePanel", () => {
     expect(getContinueBtn()).toBeDisabled();
   });
 
+  it("out-of-safe-range defaultAmountCents (1e300) is sanitized to undefined", () => {
+    render(<DonatePanel {...defaultProps} defaultAmountCents={1e300} />);
+    expect(getAmountInput().value).toBe("");
+    expect(getContinueBtn()).toBeDisabled();
+  });
+
   it("valid defaultAmountCents (5000) selects the matching chip", () => {
     render(<DonatePanel {...defaultProps} defaultAmountCents={5000} />);
     expect(getAmountInput().value).toBe("5000");
