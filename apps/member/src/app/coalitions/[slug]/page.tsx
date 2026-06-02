@@ -1,5 +1,10 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
-import { publicApiFetch, donationsEnabledForOrg } from "@organizer-hub/web-shared";
+import {
+  ApiError,
+  publicApiFetch,
+  donationsEnabledForOrg as donationsEnabledForOrgRaw,
+} from "@organizer-hub/web-shared";
 import { Eyebrow, Display, Lede, Card, CampaignCard } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../../components/PublicShell";
 
@@ -24,43 +29,57 @@ interface CoalitionDetail {
     raisedCents: number;
     donorCount: number;
     deadline: string | null;
-    status: "ACTIVE" | "COMPLETE";
   }[];
 }
+
+const donationsEnabled = cache(donationsEnabledForOrgRaw);
+const getCoalition = cache((slug: string) =>
+  publicApiFetch<CoalitionDetail>(`/coalitions/${encodeURIComponent(slug)}`),
+);
 
 export default async function CoalitionPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  if (!(await donationsEnabledForOrg())) notFound();
+  if (!(await donationsEnabled())) notFound();
   const { slug } = await params;
   let data: CoalitionDetail;
   try {
-    data = await publicApiFetch<CoalitionDetail>(
-      `/coalitions/${encodeURIComponent(slug)}`,
-    );
-  } catch {
-    notFound();
+    data = await getCoalition(slug);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) notFound();
+    throw err;
   }
 
   return (
     <PublicShell>
-      <div className="container">
+      <div
+        className="container"
+        style={{ paddingTop: 48, paddingBottom: 72 }}
+      >
         {data.coalition.coverImageUrl ? (
-          <img src={data.coalition.coverImageUrl} alt="" />
+          <img
+            src={data.coalition.coverImageUrl}
+            alt=""
+            style={{ marginBottom: 24 }}
+          />
         ) : null}
         <Eyebrow>Initiative</Eyebrow>
-        <Display as="h1" size="xl">
+        <Display as="h1" size="xl" style={{ margin: "10px 0 14px" }}>
           {data.coalition.name}
         </Display>
         {data.coalition.description ? (
-          <Lede>{data.coalition.description}</Lede>
-        ) : null}
+          <Lede style={{ marginBottom: 36 }}>{data.coalition.description}</Lede>
+        ) : (
+          <div style={{ marginBottom: 36 }} />
+        )}
 
         {data.campaigns.length === 0 ? (
-          <Card>
-            <p>No active campaigns right now. Check back soon.</p>
+          <Card padded>
+            <p className="muted">
+              No active campaigns right now. Check back soon.
+            </p>
           </Card>
         ) : (
           <div className="grid-3-narrow">
@@ -83,11 +102,10 @@ export async function generateMetadata({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  if (!(await donationsEnabled())) return { title: "Initiative" };
   const { slug } = await params;
   try {
-    const data = await publicApiFetch<CoalitionDetail>(
-      `/coalitions/${encodeURIComponent(slug)}`,
-    );
+    const data = await getCoalition(slug);
     return {
       title: data.coalition.name,
       description:

@@ -4,8 +4,11 @@ import { PublicShell } from "../../components/PublicShell";
 export default function NotFound() {
   return (
     <PublicShell>
-      <div className="container">
-        <Display as="h1" size="xl">
+      <div
+        className="container"
+        style={{ paddingTop: 48, paddingBottom: 72 }}
+      >
+        <Display as="h1" size="xl" style={{ marginBottom: 14 }}>
           Not found
         </Display>
         <Lede>The initiative you were looking for isn&apos;t here.</Lede>
