@@ -56,6 +56,14 @@ export default function StatusActions({ campaign }: StatusActionsProps) {
           {state.error}
         </p>
       )}
+      {state.ok && (
+        <p
+          role="status"
+          style={{ margin: 0, fontSize: 12.5, color: "var(--muted, #6b7280)" }}
+        >
+          Status updated.
+        </p>
+      )}
     </div>
   );
 }

@@ -41,13 +41,10 @@ const GOAL_PATTERN = /^\d+(?:\.\d{1,2})?$/;
 function parseBodyMessage(body: string, fallback: string): string {
   try {
     const parsed: unknown = JSON.parse(body);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "message" in parsed &&
-      typeof (parsed as { message: unknown }).message === "string"
-    ) {
-      return (parsed as { message: string }).message;
+    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+      const msg = (parsed as { message: unknown }).message;
+      if (typeof msg === "string") return msg;
+      if (Array.isArray(msg) && msg.length > 0) return msg.join("; ");
     }
   } catch {
     // fall through
@@ -190,7 +187,9 @@ export async function updateCampaign(
       const message =
         err.status === 409
           ? parseBodyMessage(err.body, "A campaign with that slug already exists.")
-          : `Could not save changes (${err.status}).`;
+          : err.status === 400
+            ? parseBodyMessage(err.body, "Could not save changes — please check the form and try again.")
+            : `Could not save changes (${err.status}).`;
       return { error: message, values: preserved };
     }
     throw err;
@@ -235,15 +234,23 @@ export async function transitionCampaign(
   } catch (err) {
     if (err instanceof UnauthorizedError) redirect("/auth/login");
     if (err instanceof ApiError) {
-      if (err.status === 400 || err.status === 409) {
+      if (err.status === 409) {
         return {
           error: parseBodyMessage(
             err.body,
-            err.status === 409
-              ? "Could not transition campaign — please reload and try again."
-              : `Transition to ${to} is not permitted from the current status.`,
+            "This campaign was already updated by someone else. Please refresh the page and try again.",
           ),
         };
+      }
+      if (err.status === 400) {
+        const apiMessage = parseBodyMessage(err.body, "");
+        // Service throws 'illegal transition X -> Y' when the row's current
+        // status no longer permits the requested transition — typically because
+        // another admin already moved it. Surface the cause, not the matrix.
+        const friendly = apiMessage.startsWith("illegal transition")
+          ? "This campaign was already updated by someone else. Please refresh the page and try again."
+          : (apiMessage || "Could not transition the campaign — please refresh and try again.");
+        return { error: friendly };
       }
       return { error: `Could not transition campaign (${err.status}).` };
     }

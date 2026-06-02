@@ -94,7 +94,7 @@ const DONATION_STATUS_PILL: Record<DonationStatus, { tone: PillTone; label: stri
   ACTIVE: { tone: "active", label: "Active" },
   COMPLETED: { tone: "paid", label: "Completed" },
   CANCELED: { tone: "lapsed", label: "Canceled" },
-  FAILED: { tone: "lapsed", label: "Failed" },
+  FAILED: { tone: "refunded", label: "Failed" },
 };
 
 const CADENCE_LABEL: Record<string, string> = {
