@@ -6,10 +6,11 @@ import {
 } from '@nestjs/common';
 import { CampaignStatus, Prisma } from '@organizer-hub/db/api';
 import { PrismaService } from '../prisma/prisma.service';
+import { DonationsService } from './donations.service';
 
 const LEGAL_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatus[]> = {
-  DRAFT:    ['ACTIVE', 'ARCHIVED'],
-  ACTIVE:   ['COMPLETE', 'ARCHIVED'],
+  DRAFT: ['ACTIVE', 'ARCHIVED'],
+  ACTIVE: ['COMPLETE', 'ARCHIVED'],
   COMPLETE: ['ACTIVE', 'ARCHIVED'],
   ARCHIVED: ['DRAFT'],
 };
@@ -52,7 +53,10 @@ export interface CampaignDetailResponse {
 
 @Injectable()
 export class CampaignsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly donations: DonationsService,
+  ) {}
 
   async getBySlug(
     organizationId: string,
@@ -98,7 +102,7 @@ export class CampaignsService {
         targetAmountCents: campaign.targetAmountCents,
         currency: campaign.currency,
         deadline: campaign.deadline,
-        status: campaign.status as 'ACTIVE' | 'COMPLETE',
+        status: campaign.status,
         raisedCents,
         donorCount,
         recentGiftCount,
@@ -127,7 +131,11 @@ export class CampaignsService {
       }),
       this.prisma.paymentEvent.groupBy({
         by: ['userId'],
-        where: { donation: { campaignId }, status: 'SUCCEEDED', kind: 'DONATION' },
+        where: {
+          donation: { campaignId },
+          status: 'SUCCEEDED',
+          kind: 'DONATION',
+        },
       }),
     ]);
     return {
@@ -142,9 +150,15 @@ export class CampaignsService {
     select: { id: true, slug: true, name: true, status: true },
   } as const;
 
-  async listAllForAdmin(organizationId: string, filters: { coalitionId?: string } = {}) {
+  async listAllForAdmin(
+    organizationId: string,
+    filters: { coalitionId?: string } = {},
+  ) {
     return this.prisma.campaign.findMany({
-      where: { organizationId, ...(filters.coalitionId ? { coalitionId: filters.coalitionId } : {}) },
+      where: {
+        organizationId,
+        ...(filters.coalitionId ? { coalitionId: filters.coalitionId } : {}),
+      },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
       include: { coalition: this.coalitionSelect },
     });
@@ -255,8 +269,8 @@ export class CampaignsService {
             data.deadline === null
               ? null
               : data.deadline !== undefined
-              ? new Date(data.deadline)
-              : undefined,
+                ? new Date(data.deadline)
+                : undefined,
         },
         include: { coalition: this.coalitionSelect },
       });
@@ -269,7 +283,7 @@ export class CampaignsService {
   }
 
   async transition(organizationId: string, id: string, to: CampaignStatus) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.campaign.findUnique({ where: { id } });
       if (!existing || existing.organizationId !== organizationId) {
         throw new NotFoundException();
@@ -301,11 +315,11 @@ export class CampaignsService {
       // still what we just read. Two concurrent transitions on the same row
       // would otherwise both pass their reads and the second would silently
       // overwrite the first.
-      const result = await tx.campaign.updateMany({
+      const updateResult = await tx.campaign.updateMany({
         where: { id, status: existing.status },
         data: { status: to },
       });
-      if (result.count === 0) {
+      if (updateResult.count === 0) {
         throw new ConflictException(
           'campaign status changed during transition; refresh and retry',
         );
@@ -316,5 +330,17 @@ export class CampaignsService {
         include: { coalition: this.coalitionSelect },
       });
     });
+
+    // Stripe cancels cannot live inside the $transaction — Stripe calls are
+    // non-transactional and cannot be rolled back if the tx is aborted. The
+    // cascade runs after the status flip commits. A failed cascade does NOT
+    // roll back the archive; the admin banner surfaces residuals and the
+    // customer.subscription.deleted webhook reconciles successful Stripe
+    // cancels whose DB write failed.
+    if (to === 'ARCHIVED') {
+      await this.donations.cancelAllRecurringForCampaign(organizationId, id);
+    }
+
+    return result;
   }
 }

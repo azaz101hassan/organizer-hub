@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +26,8 @@ interface CreateCheckoutInput {
 
 @Injectable()
 export class DonationsService {
+  private readonly logger = new Logger(DonationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripeClient: StripeClient,
@@ -36,7 +39,9 @@ export class DonationsService {
     input: CreateCheckoutInput,
   ): Promise<{ url: string; donationId: string }> {
     if (input.amountCents < 100 || input.amountCents > 1_000_000) {
-      throw new BadRequestException('amount must be between $1.00 and $10,000.00');
+      throw new BadRequestException(
+        'amount must be between $1.00 and $10,000.00',
+      );
     }
     const mode = this.deriveMode(input.cadence);
 
@@ -128,7 +133,11 @@ export class DonationsService {
     return { url: session.url ?? '', donationId: donation.id };
   }
 
-  async listForUser(input: { userSub: string; mode?: DonationMode; status?: DonationStatus }) {
+  async listForUser(input: {
+    userSub: string;
+    mode?: DonationMode;
+    status?: DonationStatus;
+  }) {
     return this.prisma.donation.findMany({
       where: {
         userId: input.userSub,
@@ -149,7 +158,10 @@ export class DonationsService {
     });
   }
 
-  async cancel(input: { userSub: string; donationId: string }): Promise<{ status: 'canceled' }> {
+  async cancel(input: {
+    userSub: string;
+    donationId: string;
+  }): Promise<{ status: 'canceled' }> {
     const donation = await this.prisma.donation.findUnique({
       where: { id: input.donationId },
     });
@@ -160,15 +172,21 @@ export class DonationsService {
     if (donation.status !== DonationStatus.ACTIVE) {
       throw new ConflictException('donation is not active');
     }
-    if (donation.mode !== DonationMode.RECURRING || !donation.stripeSubscriptionId) {
+    if (
+      donation.mode !== DonationMode.RECURRING ||
+      !donation.stripeSubscriptionId
+    ) {
       throw new ConflictException('donation is not recurring');
     }
 
     // Cancel-at-period-end: the current paid period stays paid, no new invoice
     // generated. Mirrors BillingService.cancelMembership.
-    await this.stripeClient.stripe.subscriptions.update(donation.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    });
+    await this.stripeClient.stripe.subscriptions.update(
+      donation.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      },
+    );
 
     await this.prisma.donation.update({
       where: { id: donation.id },
@@ -180,7 +198,10 @@ export class DonationsService {
 
   async findBySession(input: { userSub: string; sessionId: string }) {
     const donation = await this.prisma.donation.findFirst({
-      where: { stripeCheckoutSessionId: input.sessionId, userId: input.userSub },
+      where: {
+        stripeCheckoutSessionId: input.sessionId,
+        userId: input.userSub,
+      },
       include: { campaign: { select: { slug: true } } },
     });
     if (!donation) throw new NotFoundException();
@@ -195,7 +216,11 @@ export class DonationsService {
 
   async listForAdmin(
     organizationId: string,
-    filters: { campaignId?: string; mode?: DonationMode; status?: DonationStatus },
+    filters: {
+      campaignId?: string;
+      mode?: DonationMode;
+      status?: DonationStatus;
+    },
   ) {
     return this.prisma.donation.findMany({
       where: {
@@ -242,9 +267,12 @@ export class DonationsService {
 
     // Cancel-at-period-end: the current paid period stays paid, no new
     // invoice generated. Mirrors the donor self-serve cancel.
-    await this.stripeClient.stripe.subscriptions.update(donation.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    });
+    await this.stripeClient.stripe.subscriptions.update(
+      donation.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      },
+    );
 
     // Non-transactional Stripe→DB write: if the DB update fails after
     // Stripe succeeds, the customer.subscription.deleted webhook reconciles
@@ -257,13 +285,63 @@ export class DonationsService {
     return { status: 'canceled' };
   }
 
+  async cancelAllRecurringForCampaign(
+    organizationId: string,
+    campaignId: string,
+  ): Promise<{ canceled: number; failed: number }> {
+    const donations = await this.prisma.donation.findMany({
+      where: {
+        organizationId,
+        campaignId,
+        mode: DonationMode.RECURRING,
+        status: DonationStatus.ACTIVE,
+        stripeSubscriptionId: { not: null },
+      },
+    });
+
+    let canceled = 0;
+    let failed = 0;
+
+    // Per-donation try/catch keeps a single Stripe blip from stranding the rest
+    // of the batch. Best-effort: the admin banner ("N recurring donations are
+    // still active") surfaces any residuals, and the customer.subscription.deleted
+    // webhook reconciles successful Stripe cancels that failed on the DB write.
+    for (const donation of donations) {
+      try {
+        await this.stripeClient.stripe.subscriptions.update(
+          donation.stripeSubscriptionId!,
+          { cancel_at_period_end: true },
+        );
+
+        // Non-transactional Stripe→DB write: if the DB update fails after
+        // Stripe succeeds, the webhook reconciles once the period ends.
+        await this.prisma.donation.update({
+          where: { id: donation.id },
+          data: { status: DonationStatus.CANCELED, canceledAt: new Date() },
+        });
+
+        canceled++;
+      } catch (err) {
+        this.logger.error(
+          `Failed to cancel recurring donation ${donation.id} (sub ${donation.stripeSubscriptionId ?? 'none'}) during campaign archive`,
+          err instanceof Error ? err.stack : String(err),
+        );
+        failed++;
+      }
+    }
+
+    return { canceled, failed };
+  }
+
   private deriveMode(cadence: DonationCadence): DonationMode {
     return this.recurringFor(cadence) === null
       ? DonationMode.ONE_TIME
       : DonationMode.RECURRING;
   }
 
-  private recurringFor(cadence: DonationCadence):
+  private recurringFor(
+    cadence: DonationCadence,
+  ):
     | { interval: 'month'; interval_count: 1 | 3 }
     | { interval: 'year'; interval_count: 1 }
     | null {

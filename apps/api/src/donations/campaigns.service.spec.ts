@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
+import { DonationsService } from './donations.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('CampaignsService', () => {
@@ -10,12 +11,22 @@ describe('CampaignsService', () => {
   beforeEach(async () => {
     prisma = {
       campaign: { findUnique: jest.fn() },
-      paymentEvent: { aggregate: jest.fn(), groupBy: jest.fn(), count: jest.fn() },
+      paymentEvent: {
+        aggregate: jest.fn(),
+        groupBy: jest.fn(),
+        count: jest.fn(),
+      },
+    };
+    // Provide a no-op stub for DonationsService — the unit tests here only
+    // exercise getBySlug, which does not call cancelAllRecurringForCampaign.
+    const donationsStub = {
+      cancelAllRecurringForCampaign: jest.fn().mockResolvedValue({ canceled: 0, failed: 0 }),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CampaignsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DonationsService, useValue: donationsStub },
       ],
     }).compile();
     service = module.get(CampaignsService);
@@ -50,7 +61,9 @@ describe('CampaignsService', () => {
 
     it('returns campaign + coalition + aggregates on happy path', async () => {
       prisma.campaign.findUnique.mockResolvedValue(cmp);
-      prisma.paymentEvent.aggregate.mockResolvedValue({ _sum: { amountCents: 7500 } });
+      prisma.paymentEvent.aggregate.mockResolvedValue({
+        _sum: { amountCents: 7500 },
+      });
       prisma.paymentEvent.groupBy.mockResolvedValue([
         { userId: 'user_a' },
         { userId: 'user_b' },
@@ -83,7 +96,9 @@ describe('CampaignsService', () => {
 
     it('passes correct where clause to paymentEvent.aggregate', async () => {
       prisma.campaign.findUnique.mockResolvedValue(cmp);
-      prisma.paymentEvent.aggregate.mockResolvedValue({ _sum: { amountCents: null } });
+      prisma.paymentEvent.aggregate.mockResolvedValue({
+        _sum: { amountCents: null },
+      });
       prisma.paymentEvent.groupBy.mockResolvedValue([]);
       prisma.paymentEvent.count.mockResolvedValue(0);
 
@@ -102,7 +117,9 @@ describe('CampaignsService', () => {
 
     it('uses paymentEvent.groupBy for donorCount with correct where clause', async () => {
       prisma.campaign.findUnique.mockResolvedValue(cmp);
-      prisma.paymentEvent.aggregate.mockResolvedValue({ _sum: { amountCents: 5000 } });
+      prisma.paymentEvent.aggregate.mockResolvedValue({
+        _sum: { amountCents: 5000 },
+      });
       prisma.paymentEvent.groupBy.mockResolvedValue([
         { userId: 'u_canceled' },
         { userId: 'u_active' },
@@ -127,7 +144,9 @@ describe('CampaignsService', () => {
 
     it('returns raisedCents=0 when aggregate returns null sum', async () => {
       prisma.campaign.findUnique.mockResolvedValue(cmp);
-      prisma.paymentEvent.aggregate.mockResolvedValue({ _sum: { amountCents: null } });
+      prisma.paymentEvent.aggregate.mockResolvedValue({
+        _sum: { amountCents: null },
+      });
       prisma.paymentEvent.groupBy.mockResolvedValue([]);
       prisma.paymentEvent.count.mockResolvedValue(0);
 
@@ -139,30 +158,38 @@ describe('CampaignsService', () => {
     it('throws NotFoundException on DRAFT status', async () => {
       prisma.campaign.findUnique.mockResolvedValue({ ...cmp, status: 'DRAFT' });
 
-      await expect(service.getBySlug('org_1', 'campaign-one')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.getBySlug('org_1', 'campaign-one'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('throws NotFoundException on ARCHIVED status', async () => {
-      prisma.campaign.findUnique.mockResolvedValue({ ...cmp, status: 'ARCHIVED' });
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...cmp,
+        status: 'ARCHIVED',
+      });
 
-      await expect(service.getBySlug('org_1', 'campaign-one')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.getBySlug('org_1', 'campaign-one'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('throws NotFoundException when slug not found', async () => {
       prisma.campaign.findUnique.mockResolvedValue(null);
 
-      await expect(service.getBySlug('org_1', 'no-such-slug')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.getBySlug('org_1', 'no-such-slug'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('returns 200 on COMPLETE status', async () => {
-      prisma.campaign.findUnique.mockResolvedValue({ ...cmp, status: 'COMPLETE' });
-      prisma.paymentEvent.aggregate.mockResolvedValue({ _sum: { amountCents: 100_000 } });
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...cmp,
+        status: 'COMPLETE',
+      });
+      prisma.paymentEvent.aggregate.mockResolvedValue({
+        _sum: { amountCents: 100_000 },
+      });
       prisma.paymentEvent.groupBy.mockResolvedValue([{ userId: 'user_a' }]);
       prisma.paymentEvent.count.mockResolvedValue(5);
 
