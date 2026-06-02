@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  DonationMode,
   OrganizationRole,
   Prisma,
 } from '@organizer-hub/db/api';
@@ -93,7 +94,7 @@ export class PaymentEventsReadService {
 
   private applyOptionalFilters(
     where: Prisma.PaymentEventWhereInput,
-    q: Pick<QueryPaymentEventsDto, 'kind' | 'status' | 'from' | 'to'>,
+    q: Pick<QueryPaymentEventsDto, 'kind' | 'status' | 'from' | 'to' | 'campaignId' | 'recurringOnly'>,
   ): void {
     if (q.kind) where.kind = q.kind;
     if (q.status) where.status = q.status;
@@ -103,6 +104,10 @@ export class PaymentEventsReadService {
       if (q.to) range.lte = new Date(q.to);
       where.createdAt = range;
     }
+    const donation: Prisma.DonationWhereInput = {};
+    if (q.campaignId) donation.campaignId = q.campaignId;
+    if (q.recurringOnly === 'true') donation.mode = DonationMode.RECURRING;
+    if (Object.keys(donation).length > 0) where.donation = { is: donation };
   }
 
   private async paginate(
