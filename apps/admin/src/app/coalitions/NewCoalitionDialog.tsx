@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Button } from "@organizer-hub/web-shared/ui";
 import { createCoalition, type CoalitionFormState } from "./actions";
 
@@ -8,16 +8,29 @@ const INITIAL: CoalitionFormState = {};
 
 export default function NewCoalitionDialog() {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [state, formAction, pending] = useActionState(createCoalition, INITIAL);
 
-  // Close dialog on success
   useEffect(() => {
     if (state.ok) {
       dialogRef.current?.close();
     }
   }, [state.ok]);
 
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    function handleClose() {
+      triggerRef.current?.focus();
+      setFormKey((k) => k + 1);
+    }
+    dialog.addEventListener("close", handleClose);
+    return () => dialog.removeEventListener("close", handleClose);
+  }, []);
+
   function open() {
+    triggerRef.current = document.activeElement as HTMLElement | null;
     dialogRef.current?.showModal();
   }
 
@@ -79,7 +92,7 @@ export default function NewCoalitionDialog() {
             </button>
           </div>
 
-          <form action={formAction} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <form key={formKey} action={formAction} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <FormField
               id="coal-name"
               name="name"
