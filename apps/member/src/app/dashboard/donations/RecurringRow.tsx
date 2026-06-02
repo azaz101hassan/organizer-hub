@@ -120,12 +120,12 @@ export function RecurringRow({ row, index }: { row: DonationRow; index: number }
                   }
                 }}
               >
-                {pending ? "Cancelling…" : "Cancel"}
+                {pending ? "Cancelling…" : "Cancel recurring"}
               </Button>
             </form>
             {state.error && (
               <p
-                role="alert"
+                role="status"
                 style={{ fontSize: 12, color: "var(--bad)", margin: 0 }}
               >
                 {state.error}
