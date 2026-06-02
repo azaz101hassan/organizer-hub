@@ -1,4 +1,5 @@
-import { publicApiFetch } from "@organizer-hub/web-shared";
+import Link from "next/link";
+import { publicApiFetch, donationsEnabledForOrg } from "@organizer-hub/web-shared";
 import type { MembershipPlanView } from "@organizer-hub/web-shared";
 import {
   Badge,
@@ -54,7 +55,10 @@ interface PageProps {
 
 export default async function MembershipPage({ searchParams }: PageProps) {
   const { error } = await searchParams;
-  const plans = await publicApiFetch<MembershipPlanView[]>("/public/memberships");
+  const [plans, donationsOn] = await Promise.all([
+    publicApiFetch<MembershipPlanView[]>("/public/memberships"),
+    donationsEnabledForOrg(),
+  ]);
   const groups = groupByTier(plans);
 
   return (
@@ -201,6 +205,16 @@ export default async function MembershipPage({ searchParams }: PageProps) {
             View your membership
           </a>
         </p>
+
+        {donationsOn && (
+          <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+            Not ready to subscribe?{" "}
+            <Link href="/coalitions" className="link" style={{ fontSize: 13 }}>
+              Support a campaign
+            </Link>
+            .
+          </p>
+        )}
       </div>
     </PublicShell>
   );
