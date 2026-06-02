@@ -382,14 +382,70 @@ describe('Admin donations API', () => {
         .expect(400);
     });
 
-    it('malformed cursor (non-existent id) returns 200 with empty items', async () => {
-      const res = await request(app.getHttpServer())
+    it('malformed cursor (non-existent id) returns 400', async () => {
+      await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/donations?cursor=nonexistent_cursor_id`)
-        .expect(200);
+        .expect(400);
+    });
 
-      const page = res.body as PageBody<{ id: string }>;
-      expect(page.items).toHaveLength(0);
-      expect(page.nextCursor).toBeNull();
+    it('cross-org cursor: cursor from org B passed to org A list returns 400', async () => {
+      const OTHER_ORG = 'org_don_cursor_idor';
+
+      await prisma.organization.upsert({
+        where: { id: OTHER_ORG },
+        update: { donationsEnabled: true },
+        create: {
+          id: OTHER_ORG,
+          name: 'Don Cursor IDOR Org',
+          slug: 'don-cursor-idor-org',
+          createdBy: 'seed',
+          donationsEnabled: true,
+        },
+      });
+      const foreignCoal = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_don_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          slug: 'don-cursor-foreign-coalition',
+          name: 'Don Cursor Foreign Coalition',
+          status: 'ACTIVE',
+        }),
+      });
+      const foreignCamp = await prisma.campaign.create({
+        data: campaignFactory({
+          id: 'camp_don_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          coalitionId: foreignCoal.id,
+          slug: 'don-cursor-foreign-campaign',
+          name: 'Don Cursor Foreign Campaign',
+          status: 'ACTIVE',
+        }),
+      });
+      const foreignDon = await prisma.donation.create({
+        data: donationFactory({
+          id: 'don_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          userId: 'user_cursor_foreign_1',
+          campaignId: foreignCamp.id,
+          mode: 'ONE_TIME',
+          cadence: 'ONCE',
+          status: 'COMPLETED',
+          stripeSubscriptionId: null,
+        }),
+      });
+
+      try {
+        // ADMIN_USER owns ORG_ID, not OTHER_ORG. Passing the foreign donation's
+        // id as a cursor on ORG_ID's list must return 400 — invalid cursor.
+        await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/donations?cursor=${foreignDon.id}`)
+          .expect(400);
+      } finally {
+        await prisma.donation.delete({ where: { id: foreignDon.id } }).catch(() => {});
+        await prisma.campaign.delete({ where: { id: foreignCamp.id } }).catch(() => {});
+        await prisma.coalition.delete({ where: { id: foreignCoal.id } }).catch(() => {});
+        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+      }
     });
 
     it('filter+cursor: mode=RECURRING with cursor paginates correctly', async () => {

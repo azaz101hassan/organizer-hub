@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -177,13 +178,29 @@ export class CoalitionsService {
     organizationId: string,
     q: ListCoalitionsAdminDto = {},
   ) {
+    if (q.cursor) {
+      const cursorRow = await this.prisma.coalition.findUnique({
+        where: { id: q.cursor },
+        select: { organizationId: true },
+      });
+      if (!cursorRow || cursorRow.organizationId !== organizationId) {
+        throw new BadRequestException('invalid cursor');
+      }
+    }
+
     return paginateById(
       (args) =>
         this.prisma.coalition.findMany(
           args as Parameters<typeof this.prisma.coalition.findMany>[0],
         ),
       {
-        where: { organizationId },
+        where: {
+          organizationId,
+          ...(q.status ? { status: q.status } : {}),
+          ...(q.q
+            ? { name: { contains: q.q, mode: 'insensitive' } }
+            : {}),
+        },
         orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
         include: { _count: { select: { campaigns: true } } },
         cursor: q.cursor,

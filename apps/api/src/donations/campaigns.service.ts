@@ -156,6 +156,16 @@ export class CampaignsService {
     organizationId: string,
     filters: ListCampaignsAdminDto = {},
   ) {
+    if (filters.cursor) {
+      const cursorRow = await this.prisma.campaign.findUnique({
+        where: { id: filters.cursor },
+        select: { organizationId: true },
+      });
+      if (!cursorRow || cursorRow.organizationId !== organizationId) {
+        throw new BadRequestException('invalid cursor');
+      }
+    }
+
     return paginateById(
       (args) =>
         this.prisma.campaign.findMany(

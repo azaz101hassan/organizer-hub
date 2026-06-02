@@ -106,6 +106,112 @@ describe('Admin coalitions API', () => {
     });
   });
 
+  describe('server-side filters', () => {
+    it('?status=ARCHIVED returns only ARCHIVED coalitions', async () => {
+      // Archive the seeded coalition so we have one ARCHIVED row.
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'ARCHIVED' },
+      });
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${coalitionId}/archive`)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?status=ARCHIVED`)
+        .expect(200);
+
+      const body = res.body as PageBody<{ id: string; status: string }>;
+      expect(body.items.length).toBeGreaterThan(0);
+      expect(body.items.every((c) => c.status === 'ARCHIVED')).toBe(true);
+    });
+
+    it('?status=ACTIVE returns only ACTIVE coalitions', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?status=ACTIVE`)
+        .expect(200);
+
+      const body = res.body as PageBody<{ id: string; status: string }>;
+      expect(body.items.length).toBeGreaterThan(0);
+      expect(body.items.every((c) => c.status === 'ACTIVE')).toBe(true);
+    });
+
+    it('?q=substring returns matching coalitions (case-insensitive)', async () => {
+      await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_search_1',
+          organizationId: ORG_ID,
+          slug: 'searchable-coalition',
+          name: 'Searchable Coalition Alpha',
+          status: 'ACTIVE',
+        }),
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?q=searchable`)
+        .expect(200);
+
+      const body = res.body as PageBody<{ id: string; name: string }>;
+      expect(body.items.length).toBeGreaterThan(0);
+      const ids = body.items.map((c) => c.id);
+      expect(ids).toContain('coal_search_1');
+      // The seeded "Test Coalition" must not appear.
+      expect(ids).not.toContain(coalitionId);
+
+      await prisma.coalition.delete({ where: { id: 'coal_search_1' } });
+    });
+
+    it('filter ?status=ARCHIVED + cursor paginates filtered results consistently', async () => {
+      // Archive the blocking campaign so the coalition can be archived.
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'ARCHIVED' },
+      });
+      await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/coalitions/${coalitionId}/archive`)
+        .expect(200);
+
+      // Seed 20 more ARCHIVED coalitions (1 already ARCHIVED = 21 total ARCHIVED)
+      for (let i = 2; i <= 21; i++) {
+        const cId = `coal_arc_flt_${String(i).padStart(3, '0')}`;
+        await prisma.coalition.create({
+          data: coalitionFactory({
+            id: cId,
+            organizationId: ORG_ID,
+            slug: `archived-filter-${i}`,
+            name: `Archived Filter ${String(i).padStart(3, '0')}`,
+            status: 'ARCHIVED',
+          }),
+        });
+      }
+
+      const res1 = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?status=ARCHIVED&limit=10`)
+        .expect(200);
+
+      const page1 = res1.body as PageBody<{ id: string; status: string }>;
+      expect(page1.items).toHaveLength(10);
+      expect(page1.items.every((c) => c.status === 'ARCHIVED')).toBe(true);
+      expect(page1.nextCursor).not.toBeNull();
+
+      const res2 = await request(app.getHttpServer())
+        .get(
+          `/orgs/${ORG_ID}/coalitions?status=ARCHIVED&limit=10&cursor=${page1.nextCursor}`,
+        )
+        .expect(200);
+
+      const page2 = res2.body as PageBody<{ id: string; status: string }>;
+      expect(page2.items.length).toBeGreaterThan(0);
+      expect(page2.items.every((c) => c.status === 'ARCHIVED')).toBe(true);
+    });
+
+    it('?status=BOGUS returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/coalitions?status=BOGUS`)
+        .expect(400);
+    });
+  });
+
   describe('pagination', () => {
     it('default limit 20: 25 coalitions → first page has 20 items + nextCursor', async () => {
       // Seed 24 additional coalitions (1 already seeded in beforeEach = 25 total)
@@ -173,14 +279,46 @@ describe('Admin coalitions API', () => {
         .expect(400);
     });
 
-    it('malformed cursor (non-existent id) returns 200 with empty items', async () => {
-      const res = await request(app.getHttpServer())
+    it('malformed cursor (non-existent id) returns 400', async () => {
+      await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/coalitions?cursor=nonexistent_cursor_id`)
-        .expect(200);
+        .expect(400);
+    });
 
-      const page = res.body as PageBody<{ id: string }>;
-      expect(page.items).toHaveLength(0);
-      expect(page.nextCursor).toBeNull();
+    it('cross-org cursor: cursor from org B passed to org A list returns 400', async () => {
+      const OTHER_ORG = 'org_coal_cursor_idor';
+
+      await prisma.organization.upsert({
+        where: { id: OTHER_ORG },
+        update: { donationsEnabled: true },
+        create: {
+          id: OTHER_ORG,
+          name: 'Cursor IDOR Org',
+          slug: 'cursor-idor-org',
+          createdBy: 'seed',
+          donationsEnabled: true,
+        },
+      });
+      const foreignCoal = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          slug: 'cursor-foreign-coalition',
+          name: 'Cursor Foreign Coalition',
+          status: 'ACTIVE',
+        }),
+      });
+
+      try {
+        // ADMIN_USER owns ORG_ID, not OTHER_ORG. Passing the foreign coalition's
+        // id as a cursor on ORG_ID's list must return 400 — invalid cursor.
+        await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/coalitions?cursor=${foreignCoal.id}`)
+          .expect(400);
+      } finally {
+        await prisma.coalition.delete({ where: { id: foreignCoal.id } }).catch(() => {});
+        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+      }
     });
   });
 

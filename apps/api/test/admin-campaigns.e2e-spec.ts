@@ -254,14 +254,57 @@ describe('Admin campaigns API', () => {
         .expect(400);
     });
 
-    it('malformed cursor (non-existent id) returns 200 with empty items', async () => {
-      const res = await request(app.getHttpServer())
+    it('malformed cursor (non-existent id) returns 400', async () => {
+      await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns?cursor=nonexistent_cursor_id`)
-        .expect(200);
+        .expect(400);
+    });
 
-      const page = res.body as PageBody<{ id: string }>;
-      expect(page.items).toHaveLength(0);
-      expect(page.nextCursor).toBeNull();
+    it('cross-org cursor: cursor from org B passed to org A list returns 400', async () => {
+      const OTHER_ORG = 'org_camp_cursor_idor';
+
+      await prisma.organization.upsert({
+        where: { id: OTHER_ORG },
+        update: { donationsEnabled: true },
+        create: {
+          id: OTHER_ORG,
+          name: 'Camp Cursor IDOR Org',
+          slug: 'camp-cursor-idor-org',
+          createdBy: 'seed',
+          donationsEnabled: true,
+        },
+      });
+      const foreignCoal = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_camp_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          slug: 'camp-cursor-foreign-coalition',
+          name: 'Camp Cursor Foreign Coalition',
+          status: 'ACTIVE',
+        }),
+      });
+      const foreignCamp = await prisma.campaign.create({
+        data: campaignFactory({
+          id: 'camp_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          coalitionId: foreignCoal.id,
+          slug: 'camp-cursor-foreign',
+          name: 'Camp Cursor Foreign',
+          status: 'DRAFT',
+        }),
+      });
+
+      try {
+        // ADMIN_USER owns ORG_ID, not OTHER_ORG. Passing the foreign campaign's
+        // id as a cursor on ORG_ID's list must return 400 — invalid cursor.
+        await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns?cursor=${foreignCamp.id}`)
+          .expect(400);
+      } finally {
+        await prisma.campaign.delete({ where: { id: foreignCamp.id } }).catch(() => {});
+        await prisma.coalition.delete({ where: { id: foreignCoal.id } }).catch(() => {});
+        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+      }
     });
   });
 

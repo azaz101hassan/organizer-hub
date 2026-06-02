@@ -48,6 +48,8 @@ export default async function CoalitionsPage({
   let page: CoalitionListPage = { items: [], nextCursor: null };
   try {
     page = await listCoalitionsAdmin(orgId, {
+      ...(params.status && params.status !== "all" ? { status: params.status } : {}),
+      ...(params.q ? { q: params.q } : {}),
       ...(params.cursor ? { cursor: params.cursor } : {}),
     });
   } catch (err) {
@@ -59,15 +61,7 @@ export default async function CoalitionsPage({
     }
   }
 
-  // Client-side filter by status and q (applied to the current page)
-  const statusFilter = params.status && params.status !== "all" ? params.status : null;
-  const qFilter = params.q?.toLowerCase().trim() ?? null;
-
-  const filtered = page.items.filter((c: AdminCoalitionRow) => {
-    if (statusFilter && c.status !== statusFilter) return false;
-    if (qFilter && !c.name.toLowerCase().includes(qFilter)) return false;
-    return true;
-  });
+  const filtered = page.items;
 
   const nextHref = (() => {
     if (!page.nextCursor) return null;

@@ -220,6 +220,16 @@ export class DonationsService {
     organizationId: string,
     filters: ListDonationsAdminDto = {},
   ) {
+    if (filters.cursor) {
+      const cursorRow = await this.prisma.donation.findUnique({
+        where: { id: filters.cursor },
+        select: { organizationId: true },
+      });
+      if (!cursorRow || cursorRow.organizationId !== organizationId) {
+        throw new BadRequestException('invalid cursor');
+      }
+    }
+
     return paginateById(
       (args) =>
         this.prisma.donation.findMany(

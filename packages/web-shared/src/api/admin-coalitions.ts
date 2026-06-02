@@ -18,6 +18,8 @@ export interface CoalitionListPage {
 }
 
 export interface ListCoalitionsAdminParams {
+  status?: string;
+  q?: string;
   cursor?: string;
   limit?: number;
 }
