@@ -7,7 +7,7 @@ import { transitionCampaign, type CampaignTransitionFormState } from "./actions"
 type CampaignStatus = "DRAFT" | "ACTIVE" | "COMPLETE" | "ARCHIVED";
 
 interface StatusActionsProps {
-  campaign: { id: string; status: CampaignStatus };
+  campaign: { id: string; status: CampaignStatus; coalitionId: string };
 }
 
 const INITIAL: CampaignTransitionFormState = {};
@@ -33,7 +33,7 @@ const TRANSITIONS: Record<
 };
 
 export default function StatusActions({ campaign }: StatusActionsProps) {
-  const boundAction = transitionCampaign.bind(null, campaign.id);
+  const boundAction = transitionCampaign.bind(null, campaign.id, campaign.coalitionId);
   const [state, formAction, pending] = useActionState(boundAction, INITIAL);
 
   const transitions = TRANSITIONS[campaign.status] ?? [];

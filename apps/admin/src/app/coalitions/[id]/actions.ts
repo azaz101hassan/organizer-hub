@@ -155,7 +155,7 @@ function validateCampaignFields(
 
   let targetAmountCents: number | undefined;
   if (!targetRaw) {
-    errors.target = "Goal in USD is required.";
+    errors.target = "Goal amount is required.";
   } else if (!GOAL_PATTERN.test(targetRaw)) {
     errors.target =
       "Goal must be a number with up to 2 decimal places (e.g. 100 or 100.50).";

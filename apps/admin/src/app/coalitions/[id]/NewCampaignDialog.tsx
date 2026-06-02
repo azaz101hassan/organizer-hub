@@ -148,7 +148,7 @@ export default function NewCampaignDialog({ coalitionId }: NewCampaignDialogProp
             <FormField
               id="camp-target"
               name="target"
-              label="Goal in USD"
+              label="Goal amount"
               type="number"
               required
               min={1}

@@ -8,6 +8,7 @@ const INITIAL: CampaignUpdateFormState = {};
 
 interface Campaign {
   id: string;
+  coalitionId: string;
   name: string;
   slug: string;
   description?: string | null;
@@ -23,7 +24,7 @@ interface CampaignEditFormProps {
 }
 
 export default function CampaignEditForm({ campaign }: CampaignEditFormProps) {
-  const boundAction = updateCampaign.bind(null, campaign.id);
+  const boundAction = updateCampaign.bind(null, campaign.id, campaign.coalitionId);
   const [state, formAction, pending] = useActionState(boundAction, INITIAL);
 
   // Pre-fill the target field as a dollar amount rounded to 2 decimal places.
@@ -80,7 +81,7 @@ export default function CampaignEditForm({ campaign }: CampaignEditFormProps) {
       <FormField
         id="edit-target"
         name="target"
-        label="Goal in USD"
+        label="Goal amount"
         type="number"
         required
         min={1}

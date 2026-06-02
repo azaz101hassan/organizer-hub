@@ -78,6 +78,7 @@ function fmtDate(iso: string) {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -212,7 +213,7 @@ export default async function AdminCampaignDetail({
             ← {campaign.coalition.name}
           </Link>
         }
-        actions={<StatusActions campaign={{ id: campaign.id, status: campaign.status }} />}
+        actions={<StatusActions campaign={{ id: campaign.id, status: campaign.status, coalitionId: campaign.coalitionId }} />}
       />
 
       {/* Status badge row */}

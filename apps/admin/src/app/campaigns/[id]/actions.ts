@@ -76,7 +76,7 @@ function validateCampaignUpdateFields(
 
   let targetAmountCents: number | undefined;
   if (!targetRaw) {
-    errors.target = "Goal in USD is required.";
+    errors.target = "Goal amount is required.";
   } else if (!GOAL_PATTERN.test(targetRaw)) {
     errors.target =
       "Goal must be a number with up to 2 decimal places (e.g. 100 or 100.50).";
@@ -112,6 +112,7 @@ function validateCampaignUpdateFields(
 
 export async function updateCampaign(
   id: string,
+  coalitionId: string,
   _prev: CampaignUpdateFormState,
   formData: FormData,
 ): Promise<CampaignUpdateFormState> {
@@ -196,6 +197,7 @@ export async function updateCampaign(
   }
 
   revalidatePath(`/campaigns/${id}`);
+  revalidatePath(`/coalitions/${coalitionId}`);
   revalidatePath("/coalitions");
   return { ok: true };
 }
@@ -211,6 +213,7 @@ const VALID_STATUSES = new Set(["DRAFT", "ACTIVE", "COMPLETE", "ARCHIVED"]);
 
 export async function transitionCampaign(
   id: string,
+  coalitionId: string,
   _prev: CampaignTransitionFormState,
   formData: FormData,
 ): Promise<CampaignTransitionFormState> {
@@ -248,6 +251,7 @@ export async function transitionCampaign(
   }
 
   revalidatePath(`/campaigns/${id}`);
+  revalidatePath(`/coalitions/${coalitionId}`);
   revalidatePath("/coalitions");
   return { ok: true };
 }
