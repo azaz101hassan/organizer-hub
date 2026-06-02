@@ -224,6 +224,29 @@ export default async function AdminCampaignDetail({
         </span>
       </div>
 
+      {campaign.status === "ARCHIVED" && campaign.activeRecurringCount > 0 && (
+        <div
+          role="status"
+          style={{
+            padding: "10px 14px",
+            borderRadius: 8,
+            border: "1px solid var(--line)",
+            background: "var(--surface-soft, var(--surface))",
+            fontSize: 13,
+            color: "var(--ink)",
+            marginBottom: 16,
+          }}
+        >
+          <strong>{campaign.activeRecurringCount}</strong>{" "}
+          {campaign.activeRecurringCount === 1
+            ? "recurring donation is"
+            : "recurring donations are"}{" "}
+          still active despite this campaign being archived. Archiving does not
+          cancel existing subscriptions — open a donation to cancel it
+          individually.
+        </div>
+      )}
+
       {/* KPI grid */}
       <div
         style={{

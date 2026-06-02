@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { notFound } from "next/navigation";
+import Image from "next/image";
 import {
   ApiError,
   publicApiFetch,
@@ -59,11 +60,24 @@ export default async function CoalitionPage({
         style={{ paddingTop: 48, paddingBottom: 72 }}
       >
         {data.coalition.coverImageUrl ? (
-          <img
-            src={data.coalition.coverImageUrl}
-            alt=""
-            style={{ marginBottom: 24 }}
-          />
+          <div
+            style={{
+              position: "relative",
+              marginBottom: 24,
+              width: "100%",
+              aspectRatio: "16 / 7",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
+          >
+            <Image
+              src={data.coalition.coverImageUrl}
+              alt=""
+              fill
+              sizes="(max-width: 768px) 100vw, 960px"
+              style={{ objectFit: "cover" }}
+            />
+          </div>
         ) : null}
         <Eyebrow>Initiative</Eyebrow>
         <Display as="h1" size="xl" style={{ margin: "10px 0 14px" }}>
