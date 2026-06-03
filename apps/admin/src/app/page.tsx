@@ -20,7 +20,7 @@ import type {
 
 async function fetchEvents(): Promise<PaymentEventListPage> {
   try {
-    return await listPaymentEvents({ limit: 200 });
+    return await listPaymentEvents({ limit: 100 });
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err;
     if (err instanceof ApiError) {
@@ -36,11 +36,6 @@ function money0(cents: number): string {
   return "$" + Math.round(cents / 100).toLocaleString();
 }
 
-function moneyK(cents: number): string {
-  const v = cents / 100;
-  if (v >= 1000) return "$" + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k";
-  return "$" + v.toFixed(0);
-}
 
 const KIND_ICON: Record<string, "ticket" | "star" | "dollar" | "card"> = {
   TICKET: "ticket",
@@ -172,7 +167,7 @@ export default async function AdminDashboardPage() {
       {/* Main grid: chart + feed */}
       <div className="grid-main">
         <Panel title="Monthly Revenue">
-          <BarChart data={revenueByMonth} valueKey="cents" fmt={moneyK} />
+          <BarChart data={revenueByMonth} valueKey="cents" />
         </Panel>
 
         <Panel title="Recent Activity">
