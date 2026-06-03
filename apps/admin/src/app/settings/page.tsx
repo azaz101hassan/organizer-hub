@@ -1,4 +1,4 @@
-import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme";
+import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme/server";
 import { PageHead } from "../../components/PageHead";
 import { SettingsClient } from "./SettingsClient";
 

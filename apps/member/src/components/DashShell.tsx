@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { readSession, donationsEnabledForOrg } from "@organizer-hub/web-shared";
-import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme";
+import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme/server";
 import { DashSidebar } from "./DashSidebar";
 
 export async function DashShell({ children }: { children: ReactNode }) {

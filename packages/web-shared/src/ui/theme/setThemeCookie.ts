@@ -1,15 +1,13 @@
 "use server";
 
 import { cookies } from "next/headers";
-import type { Theme } from "./readThemeCookie";
-
-const VALID: ReadonlySet<string> = new Set<Theme>(["atrium", "noir", "vellum"]);
+import { type Theme, VALID_THEMES } from "./themeTypes";
 
 export async function setThemeCookie(
   cookieName: string,
   theme: Theme,
 ): Promise<void> {
-  if (!VALID.has(theme)) return;
+  if (!VALID_THEMES.has(theme)) return;
   const store = await cookies();
   store.set(cookieName, theme, {
     path: "/",
