@@ -28,8 +28,11 @@ async function probe(page: Page, route: string): Promise<RouteFinding> {
 
   let status: number | null = null;
   try {
+    // Wait for `load` rather than `networkidle`: routes like /waitlist hold a
+    // long-lived SSE connection open, so the network never goes idle and
+    // networkidle times out even though the page rendered fine.
     const resp = await page.goto(route, {
-      waitUntil: 'networkidle',
+      waitUntil: 'load',
       timeout: 15000,
     });
     status = resp?.status() ?? null;
