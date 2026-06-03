@@ -17,7 +17,7 @@ import { ListDonationsAdminDto } from './dto/list-donations-admin.dto';
 
 // Org-scoped admin surface for donations list + force-cancel. RolesGuard
 // reads :orgId from the path: 404 for non-members, 403 for members with
-// insufficient role. No DonationsFeatureFlagGuard — admins manage the feature.
+// insufficient role.
 @Controller('orgs/:orgId/donations')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminDonationsController {

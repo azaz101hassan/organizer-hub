@@ -5,7 +5,6 @@ import {
   apiFetch,
   UnauthorizedError,
   getHouseOrgId,
-  donationsEnabledForOrg,
   listDonationsAdmin,
   type DonationListPage,
 } from "@organizer-hub/web-shared";
@@ -119,9 +118,6 @@ export default async function AdminCampaignDetail({
   searchParams: Promise<{ cursor?: string }>;
 }) {
   const orgId = getHouseOrgId();
-  const enabled = await donationsEnabledForOrg();
-  if (!enabled) notFound();
-
   const { id } = await params;
   const { cursor } = await searchParams;
 

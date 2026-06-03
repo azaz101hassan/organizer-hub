@@ -4,7 +4,6 @@ import Image from "next/image";
 import {
   ApiError,
   publicApiFetch,
-  donationsEnabledForOrg as donationsEnabledForOrgRaw,
 } from "@organizer-hub/web-shared";
 import { Eyebrow, Display, Lede, Card, CampaignCard } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../../components/PublicShell";
@@ -33,7 +32,6 @@ interface CoalitionDetail {
   }[];
 }
 
-const donationsEnabled = cache(donationsEnabledForOrgRaw);
 const getCoalition = cache((slug: string) =>
   publicApiFetch<CoalitionDetail>(`/coalitions/${encodeURIComponent(slug)}`),
 );
@@ -43,7 +41,6 @@ export default async function CoalitionPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  if (!(await donationsEnabled())) notFound();
   const { slug } = await params;
   let data: CoalitionDetail;
   try {
@@ -116,7 +113,6 @@ export async function generateMetadata({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  if (!(await donationsEnabled())) return { title: "Initiative" };
   const { slug } = await params;
   try {
     const data = await getCoalition(slug);

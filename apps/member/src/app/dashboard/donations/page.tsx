@@ -1,10 +1,9 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   apiFetch,
   ApiError,
   UnauthorizedError,
-  donationsEnabledForOrg,
 } from "@organizer-hub/web-shared";
 import { Card, Display, Eyebrow, Lede } from "@organizer-hub/web-shared/ui";
 import { RecurringRow, type DonationRow } from "./RecurringRow";
@@ -14,8 +13,6 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "My recurring donations" };
 
 export default async function MyDonationsPage() {
-  if (!(await donationsEnabledForOrg())) notFound();
-
   let rows: DonationRow[] = [];
   try {
     const all = await apiFetch<DonationRow[]>("/donations/mine?mode=RECURRING");

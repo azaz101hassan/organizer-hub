@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { redirect, notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import {
   ApiError,
   UnauthorizedError,
   getHouseOrgId,
-  donationsEnabledForOrg,
   listCoalitionsAdmin,
   type AdminCoalitionRow,
   type CoalitionListPage,
@@ -41,9 +40,6 @@ export default async function CoalitionsPage({
 }) {
   const orgId = getHouseOrgId();
   const params = await searchParams;
-
-  const enabled = await donationsEnabledForOrg();
-  if (!enabled) notFound();
 
   let page: CoalitionListPage = { items: [], nextCursor: null };
   try {

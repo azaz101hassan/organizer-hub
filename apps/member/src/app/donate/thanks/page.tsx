@@ -1,10 +1,9 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import {
   apiFetch,
   UnauthorizedError,
-  donationsEnabledForOrg,
 } from "@organizer-hub/web-shared";
 import { Eyebrow, Display, Lede, Card } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../../components/PublicShell";
@@ -24,8 +23,6 @@ export default async function DonateThanksPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!(await donationsEnabledForOrg())) notFound();
-
   const sp = await searchParams;
 
   const sessionIdRaw = Array.isArray(sp.session_id)

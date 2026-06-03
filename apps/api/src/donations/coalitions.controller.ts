@@ -1,10 +1,8 @@
-import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { CoalitionsService } from './coalitions.service';
-import { DonationsFeatureFlagGuard } from './donations-feature-flag.guard';
 
 @Controller('coalitions')
-@UseGuards(DonationsFeatureFlagGuard)
 export class CoalitionsController {
   constructor(private readonly coalitions: CoalitionsService) {}
 

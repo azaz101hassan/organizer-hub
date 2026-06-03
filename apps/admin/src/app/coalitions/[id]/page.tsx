@@ -5,7 +5,6 @@ import {
   apiFetch,
   UnauthorizedError,
   getHouseOrgId,
-  donationsEnabledForOrg,
   listCampaignsAdmin,
   type CampaignListPage,
 } from "@organizer-hub/web-shared";
@@ -85,8 +84,6 @@ export default async function CoalitionDetailPage({
   const { id } = await params;
   const { cursor } = await searchParams;
   const orgId = getHouseOrgId();
-
-  if (!(await donationsEnabledForOrg())) notFound();
 
   let coalition: CoalitionDetail;
   let campaignPage: CampaignListPage = { items: [], nextCursor: null };

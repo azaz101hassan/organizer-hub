@@ -1,5 +1,4 @@
-import { notFound } from "next/navigation";
-import { publicApiFetch, donationsEnabledForOrg } from "@organizer-hub/web-shared";
+import { publicApiFetch } from "@organizer-hub/web-shared";
 import { Eyebrow, Display, Lede, CoalitionCard } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../components/PublicShell";
 
@@ -16,8 +15,6 @@ interface CoalitionListItem {
 }
 
 export default async function CoalitionsPage() {
-  if (!(await donationsEnabledForOrg())) notFound();
-
   let coalitions: CoalitionListItem[] = [];
   try {
     coalitions = await publicApiFetch<CoalitionListItem[]>("/coalitions");

@@ -3,9 +3,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { HOUSE_ORG_ID } from '../common/house-org';
 
-// Resolves the campaign's organization and attaches
-// `req.organization = { id, donationsEnabled }` so DonationsFeatureFlagGuard
-// can gate routes without an extra DB query.
+// Resolves the campaign's organization and attaches `req.organization = { id }`
+// so controllers can scope reads by org without an extra DB query.
 //
 // Handles three route patterns:
 //   POST /billing/checkout/donation — resolve via req.body.campaignId
@@ -13,8 +12,7 @@ import { HOUSE_ORG_ID } from '../common/house-org';
 //     the URL path. Route params (req.params) are not populated by Express at
 //     middleware time, so the id is parsed manually from req.originalUrl.
 //   GET  /coalitions and GET /coalitions/:slug and GET /campaigns/:slug —
-//     single-tenant public reads; fall back to the house org so
-//     DonationsFeatureFlagGuard can still run.
+//     single-tenant public reads; fall back to the house org.
 @Injectable()
 export class DonationsOrgResolverMiddleware implements NestMiddleware {
   constructor(private readonly prisma: PrismaService) {}
@@ -31,7 +29,7 @@ export class DonationsOrgResolverMiddleware implements NestMiddleware {
       if (donation?.organizationId) {
         const org = await this.prisma.organization.findUnique({
           where: { id: donation.organizationId },
-          select: { id: true, donationsEnabled: true },
+          select: { id: true },
         });
         if (org) {
           (req as any).organization = org;
@@ -50,7 +48,7 @@ export class DonationsOrgResolverMiddleware implements NestMiddleware {
       if (campaign?.organizationId) {
         const org = await this.prisma.organization.findUnique({
           where: { id: campaign.organizationId },
-          select: { id: true, donationsEnabled: true },
+          select: { id: true },
         });
         if (org) {
           (req as any).organization = org;

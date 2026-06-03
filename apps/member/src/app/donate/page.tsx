@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   ApiError,
   publicApiFetch,
-  donationsEnabledForOrg as donationsEnabledForOrgRaw,
 } from "@organizer-hub/web-shared";
 import {
   Eyebrow,
@@ -40,13 +39,11 @@ interface CampaignDetail {
   coalition: { id: string; slug: string; name: string };
 }
 
-const donationsEnabled = cache(donationsEnabledForOrgRaw);
 const getGeneralFund = cache(() =>
   publicApiFetch<CampaignDetail>(`/campaigns/${GENERAL_FUND_SLUG}`),
 );
 
 export async function generateMetadata() {
-  if (!(await donationsEnabled())) return { title: "Support the work" };
   return {
     title: "Support the work",
     description: "Your gift supports everything we do, year-round.",
@@ -63,8 +60,6 @@ export default async function DonatePage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!(await donationsEnabled())) notFound();
-
   let data: CampaignDetail;
   try {
     data = await getGeneralFund();
