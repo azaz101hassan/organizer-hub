@@ -6,11 +6,12 @@ export interface SignupResult {
   password: string;
 }
 
-// Drive a fresh OIDC signup through the member app's /auth/login. The member
-// app redirects to accounts:3002/interaction/<id>. We click the "Create an
-// account" link, fill name/email/password, submit, and wait for the redirect
-// back to the member origin. Selectors mirror scripts/admin-member-smoke.mjs
-// (input[name=...] and button[type=submit]).
+// Drive a fresh OIDC signup through the member app's /auth/login/authorize.
+// That route sets PKCE cookies and immediately redirects to
+// accounts:3002/oidc/auth, which in turn redirects to
+// accounts:3002/interaction/<id>. We click the "Create an account" link,
+// fill name/email/password, submit, and wait for the redirect back to the
+// member origin. Selectors match the accounts app's HTML form attributes.
 export async function signupViaMember(
   page: Page,
   memberUrl: string,
@@ -23,7 +24,9 @@ export async function signupViaMember(
     password: `Pw-${unique}!aA1`,
   };
 
-  await page.goto(`${memberUrl}/auth/login`, { waitUntil: 'networkidle' });
+  // /auth/login/authorize (not /auth/login) immediately fires the OIDC redirect
+  // to accounts. /auth/login is a static landing page with a "Continue" button.
+  await page.goto(`${memberUrl}/auth/login/authorize`, { waitUntil: 'networkidle' });
   if (!page.url().startsWith(`${accountsUrl}/interaction/`)) {
     throw new Error(`unexpected interaction url: ${page.url()}`);
   }
@@ -49,17 +52,19 @@ export async function signupViaMember(
   throw new Error(`signup never landed on member; last=${page.url()}`);
 }
 
-// Sign in the same user against the admin app to seed admin cookies. The
-// /auth/login redirects to the same accounts interaction surface; some
-// flows insert a consent step after credentials, which we submit defensively
-// by clicking any next submit button while still on /interaction/.
+// Sign in the same user against any app to seed its cookies. loginPath is the
+// app-specific route that fires the OIDC redirect (e.g. '/auth/login' for
+// admin, '/auth/login/authorize' for member). Lands on accounts:3002/interaction/
+// <id> after the redirect chain resolves. Some flows insert a consent step
+// after credentials, which we submit defensively while still on /interaction/.
 export async function signinExistingViaApp(
   page: Page,
   appUrl: string,
   accountsUrl: string,
   creds: SignupResult,
+  loginPath = '/auth/login',
 ): Promise<void> {
-  await page.goto(`${appUrl}/auth/login`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}${loginPath}`, { waitUntil: 'networkidle' });
   if (!page.url().startsWith(`${accountsUrl}/interaction/`)) {
     throw new Error(`unexpected interaction url: ${page.url()}`);
   }
