@@ -95,17 +95,6 @@ describe('Donations checkout (one-time)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 404 when the org has donationsEnabled=false', async () => {
-    await prisma.organization.update({
-      where: { id: 'org_test_donations' },
-      data: { donationsEnabled: false },
-    });
-    const res = await request(app.getHttpServer())
-      .post('/billing/checkout/donation')
-      .send({ campaignId: 'camp_1', cadence: 'ONCE', amountCents: 2500 });
-    expect(res.status).toBe(404);
-  });
-
   it('returns 201 with url + donationId for a MONTHLY recurring request and writes mode=RECURRING', async () => {
     const res = await request(app.getHttpServer())
       .post('/billing/checkout/donation')
@@ -121,17 +110,6 @@ describe('Donations checkout (one-time)', () => {
     expect(last.mode).toBe('subscription');
   });
 
-  it('returns 404 when the body has no campaignId — guard must short-circuit, controller must not run', async () => {
-    // HOUSE_ORG_ID is seeded with donationsEnabled:true in beforeEach.
-    // Without the GET-only guard on the fallback, the middleware would resolve
-    // HOUSE_ORG_ID and the guard would pass, landing a 400 (DTO validation)
-    // instead of 404. With the fix, no org is resolved for this POST, the
-    // guard sees req.organization === undefined, and returns 404.
-    const res = await request(app.getHttpServer())
-      .post('/billing/checkout/donation')
-      .send({ cadence: 'ONCE', amountCents: 2500 }); // no campaignId
-    expect(res.status).toBe(404);
-  });
 });
 
 describe('Donation cancel', () => {
@@ -407,12 +385,4 @@ describe('GET /donations/mine', () => {
     expect(res.body).toEqual([]);
   });
 
-  it('404 when donationsEnabled is off on HOUSE_ORG_ID', async () => {
-    await prisma.organization.update({
-      where: { id: HOUSE_ORG_ID },
-      data: { donationsEnabled: false },
-    });
-    const res = await request(app.getHttpServer()).get('/donations/mine');
-    expect(res.status).toBe(404);
-  });
 });

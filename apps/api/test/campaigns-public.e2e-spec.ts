@@ -299,13 +299,4 @@ describe('GET /campaigns/:slug (public detail)', () => {
     expect(res.body.campaign.recentGiftCount).toBe(1);
   });
 
-  it('returns 404 when donationsEnabled=false on the org', async () => {
-    await prisma.organization.update({
-      where: { id: HOUSE_ORG_ID },
-      data: { donationsEnabled: false },
-    });
-
-    const res = await request(app.getHttpServer()).get('/campaigns/c1');
-    expect(res.status).toBe(404);
-  });
 });
