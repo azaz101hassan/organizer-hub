@@ -43,10 +43,13 @@ async function bootstrap(): Promise<void> {
       forbidNonWhitelisted: true,
     }),
   );
-  app.enableCors({
-    origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
-    credentials: true,
-  });
+  const defaultOrigins = ['http://localhost:3000', 'http://localhost:3003'];
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : defaultOrigins;
+  app.enableCors({ origin: allowedOrigins, credentials: true });
   const port = Number(process.env.API_PORT) || 3001;
   await app.listen(port);
   console.log(`[api] listening on http://localhost:${port}`);
