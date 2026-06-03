@@ -53,9 +53,10 @@ export default async function TransactionsPage({
   let campaigns: CampaignOption[] = [];
   if (params.kind === "DONATION") {
     try {
-      campaigns = await apiFetch<CampaignOption[]>(
-        `/orgs/${encodeURIComponent(orgId)}/campaigns`,
+      const resp = await apiFetch<{ items: CampaignOption[]; nextCursor: string | null }>(
+        `/orgs/${encodeURIComponent(orgId)}/campaigns?limit=100`,
       );
+      campaigns = resp.items;
     } catch (err) {
       if (err instanceof UnauthorizedError) redirect("/auth/login");
       // Non-fatal: render the page with no campaign options if the fetch fails.

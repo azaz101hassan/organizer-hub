@@ -1,4 +1,4 @@
-import { DonationMode, DonationStatus } from '@organizer-hub/db/api';
+import { CoalitionStatus } from '@organizer-hub/db/api';
 import {
   IsEnum,
   IsInt,
@@ -10,19 +10,15 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class ListDonationsAdminDto {
+export class ListCoalitionsAdminDto {
+  @IsOptional()
+  @IsEnum(CoalitionStatus)
+  status?: CoalitionStatus;
+
   @IsOptional()
   @IsString()
   @Length(1, 200)
-  campaignId?: string;
-
-  @IsOptional()
-  @IsEnum(DonationMode)
-  mode?: DonationMode;
-
-  @IsOptional()
-  @IsEnum(DonationStatus)
-  status?: DonationStatus;
+  q?: string;
 
   @IsOptional()
   @IsString()

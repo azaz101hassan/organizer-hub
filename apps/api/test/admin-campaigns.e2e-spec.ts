@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { OrganizationRole } from '@organizer-hub/db/api';
+import { StripeClient } from './../src/billing/stripe.client';
 import { PrismaService } from './../src/prisma/prisma.service';
 import {
   bootTestApp,
@@ -9,21 +10,35 @@ import {
   stubJwtAuthGuard,
   type SubHolder,
 } from './helpers/boot-test-app';
-import { campaignFactory, coalitionFactory, donationFactory } from './factories';
+import { FakeStripeClient } from './helpers/fake-stripe';
+import {
+  campaignFactory,
+  coalitionFactory,
+  donationFactory,
+} from './factories';
 
 const ADMIN_USER = 'admin-camp-1';
 const ORG_ID = 'org_admin_camp_test';
 
+interface PageBody<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 describe('Admin campaigns API', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let fakeStripe: FakeStripeClient;
   let holder: SubHolder;
   let coalitionId: string;
   let campaignId: string;
 
   beforeAll(async () => {
+    fakeStripe = new FakeStripeClient();
     holder = makeSubHolder(ADMIN_USER);
-    ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(holder)));
+    ({ app, prisma } = await bootTestApp(stubJwtAuthGuard(holder), [
+      { token: StripeClient, useValue: fakeStripe },
+    ]));
   });
 
   beforeEach(async () => {
@@ -33,9 +48,12 @@ describe('Admin campaigns API', () => {
     await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.campaign.deleteMany({ where: { organizationId: ORG_ID } });
     await prisma.coalition.deleteMany({ where: { organizationId: ORG_ID } });
-    await prisma.organizationMember.deleteMany({ where: { organizationId: ORG_ID } });
+    await prisma.organizationMember.deleteMany({
+      where: { organizationId: ORG_ID },
+    });
 
     holder.value = ADMIN_USER;
+    fakeStripe.reset();
 
     await prisma.organization.upsert({
       where: { id: ORG_ID },
@@ -51,7 +69,11 @@ describe('Admin campaigns API', () => {
 
     // Bind test user as OWNER so RolesGuard passes
     await prisma.organizationMember.create({
-      data: { organizationId: ORG_ID, userId: ADMIN_USER, role: OrganizationRole.OWNER },
+      data: {
+        organizationId: ORG_ID,
+        userId: ADMIN_USER,
+        role: OrganizationRole.OWNER,
+      },
     });
 
     const coalition = await prisma.coalition.create({
@@ -83,15 +105,16 @@ describe('Admin campaigns API', () => {
   });
 
   describe('GET /orgs/:orgId/campaigns', () => {
-    it('returns 200 with a list including the seeded DRAFT campaign (admin sees DRAFT)', async () => {
+    it('returns 200 with paginated shape including the seeded DRAFT campaign (admin sees DRAFT)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      const item = (res.body as { id: string; status: string }[]).find(
-        (c) => c.id === campaignId,
-      );
+      const body = res.body as PageBody<{ id: string; status: string }>;
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('nextCursor');
+      expect(Array.isArray(body.items)).toBe(true);
+      const item = body.items.find((c) => c.id === campaignId);
       expect(item).toBeDefined();
       expect(item?.status).toBe('DRAFT');
     });
@@ -123,24 +146,30 @@ describe('Admin campaigns API', () => {
           .get(`/orgs/${ORG_ID}/campaigns?coalitionId=${secondCoalition.id}`)
           .expect(200);
 
-        expect(Array.isArray(res.body)).toBe(true);
-        const ids = (res.body as { id: string }[]).map((c) => c.id);
+        const body = res.body as PageBody<{ id: string }>;
+        expect(Array.isArray(body.items)).toBe(true);
+        const ids = body.items.map((c) => c.id);
         expect(ids).toContain(secondCampaign.id);
         expect(ids).not.toContain(campaignId);
-        expect(res.body).toHaveLength(1);
+        expect(body.items).toHaveLength(1);
       } finally {
-        await prisma.campaign.delete({ where: { id: secondCampaign.id } }).catch(() => {});
-        await prisma.coalition.delete({ where: { id: secondCoalition.id } }).catch(() => {});
+        await prisma.campaign
+          .delete({ where: { id: secondCampaign.id } })
+          .catch(() => {});
+        await prisma.coalition
+          .delete({ where: { id: secondCoalition.id } })
+          .catch(() => {});
       }
     });
 
-    it('filter no-match: returns empty array when coalitionId matches no campaigns', async () => {
+    it('filter no-match: returns empty items when coalitionId matches no campaigns', async () => {
       const res = await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns?coalitionId=nonexistent-cuid-value`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body).toHaveLength(0);
+      const body = res.body as PageBody<{ id: string }>;
+      expect(Array.isArray(body.items)).toBe(true);
+      expect(body.items).toHaveLength(0);
     });
 
     it('filter validation: returns 400 when coalitionId is an empty string', async () => {
@@ -153,6 +182,129 @@ describe('Admin campaigns API', () => {
       await request(app.getHttpServer())
         .get(`/orgs/${ORG_ID}/campaigns?unknownField=foo`)
         .expect(400);
+    });
+  });
+
+  describe('pagination', () => {
+    it('default limit 20: 25 campaigns → first page has 20 items + nextCursor', async () => {
+      // Seed 24 additional campaigns (1 already seeded in beforeEach = 25 total)
+      for (let i = 2; i <= 25; i++) {
+        await prisma.campaign.create({
+          data: campaignFactory({
+            id: `camp_pag_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            coalitionId,
+            slug: `pagination-campaign-${i}`,
+            name: `Pagination Campaign ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns`)
+        .expect(200);
+
+      const page1 = res.body as PageBody<{ id: string }>;
+      expect(page1.items).toHaveLength(20);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Fetch second page using the cursor
+      const res2 = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?cursor=${page1.nextCursor}`)
+        .expect(200);
+
+      const page2 = res2.body as PageBody<{ id: string }>;
+      expect(page2.items).toHaveLength(5);
+      expect(page2.nextCursor).toBeNull();
+    });
+
+    it('limit=5: returns 5 items and a cursor from 25 campaigns', async () => {
+      for (let i = 2; i <= 25; i++) {
+        await prisma.campaign.create({
+          data: campaignFactory({
+            id: `camp_lim_${String(i).padStart(3, '0')}`,
+            organizationId: ORG_ID,
+            coalitionId,
+            slug: `limit-campaign-${i}`,
+            name: `Limit Campaign ${String(i).padStart(3, '0')}`,
+            status: 'ACTIVE',
+          }),
+        });
+      }
+
+      const res = await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=5`)
+        .expect(200);
+
+      const page = res.body as PageBody<{ id: string }>;
+      expect(page.items).toHaveLength(5);
+      expect(page.nextCursor).not.toBeNull();
+    });
+
+    it('limit=101 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=101`)
+        .expect(400);
+    });
+
+    it('limit=0 returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?limit=0`)
+        .expect(400);
+    });
+
+    it('malformed cursor (non-existent id) returns 400', async () => {
+      await request(app.getHttpServer())
+        .get(`/orgs/${ORG_ID}/campaigns?cursor=nonexistent_cursor_id`)
+        .expect(400);
+    });
+
+    it('cross-org cursor: cursor from org B passed to org A list returns 400', async () => {
+      const OTHER_ORG = 'org_camp_cursor_idor';
+
+      await prisma.organization.upsert({
+        where: { id: OTHER_ORG },
+        update: { donationsEnabled: true },
+        create: {
+          id: OTHER_ORG,
+          name: 'Camp Cursor IDOR Org',
+          slug: 'camp-cursor-idor-org',
+          createdBy: 'seed',
+          donationsEnabled: true,
+        },
+      });
+      const foreignCoal = await prisma.coalition.create({
+        data: coalitionFactory({
+          id: 'coal_camp_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          slug: 'camp-cursor-foreign-coalition',
+          name: 'Camp Cursor Foreign Coalition',
+          status: 'ACTIVE',
+        }),
+      });
+      const foreignCamp = await prisma.campaign.create({
+        data: campaignFactory({
+          id: 'camp_cursor_foreign_1',
+          organizationId: OTHER_ORG,
+          coalitionId: foreignCoal.id,
+          slug: 'camp-cursor-foreign',
+          name: 'Camp Cursor Foreign',
+          status: 'DRAFT',
+        }),
+      });
+
+      try {
+        // ADMIN_USER owns ORG_ID, not OTHER_ORG. Passing the foreign campaign's
+        // id as a cursor on ORG_ID's list must return 400 — invalid cursor.
+        await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns?cursor=${foreignCamp.id}`)
+          .expect(400);
+      } finally {
+        await prisma.campaign.delete({ where: { id: foreignCamp.id } }).catch(() => {});
+        await prisma.coalition.delete({ where: { id: foreignCoal.id } }).catch(() => {});
+        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+      }
     });
   });
 
@@ -273,9 +425,11 @@ describe('Admin campaigns API', () => {
           .expect(200);
 
         expect(res.body.raisedCents).toBe(10_000); // 5000 + 3000 + 2000
-        expect(res.body.donorCount).toBe(2);       // user_agg_1 and user_agg_2 (distinct)
+        expect(res.body.donorCount).toBe(2); // user_agg_1 and user_agg_2 (distinct)
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -327,7 +481,9 @@ describe('Admin campaigns API', () => {
 
         expect(res.body.raisedCents).toBe(7_500);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -405,9 +561,13 @@ describe('Admin campaigns API', () => {
         expect(res.body.raisedCents).toBe(10_000);
         expect(res.body.donorCount).toBe(1);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
-        await prisma.campaign.delete({ where: { id: campaignB.id } }).catch(() => {});
+        await prisma.campaign
+          .delete({ where: { id: campaignB.id } })
+          .catch(() => {});
       }
     });
 
@@ -458,7 +618,9 @@ describe('Admin campaigns API', () => {
 
         expect(res.body.raisedCents).toBe(15_000);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -513,7 +675,9 @@ describe('Admin campaigns API', () => {
         // raisedCents still nets the refund.
         expect(res.body.raisedCents).toBe(8_000);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -580,7 +744,9 @@ describe('Admin campaigns API', () => {
         // Only userA has a DONATION-kind SUCCEEDED PE; userB must not be counted.
         expect(res.body.donorCount).toBe(1);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -630,7 +796,9 @@ describe('Admin campaigns API', () => {
         expect(res.body.raisedCents).toBe(0);
         expect(res.body.donorCount).toBe(0);
       } finally {
-        await prisma.paymentEvent.deleteMany({ where: { organizationId: ORG_ID } });
+        await prisma.paymentEvent.deleteMany({
+          where: { organizationId: ORG_ID },
+        });
         await prisma.donation.deleteMany({ where: { organizationId: ORG_ID } });
       }
     });
@@ -683,7 +851,13 @@ describe('Admin campaigns API', () => {
       } finally {
         await prisma.donation.deleteMany({
           where: {
-            id: { in: [donRecurringActive.id, donRecurringCanceled.id, donOneTimeCompleted.id] },
+            id: {
+              in: [
+                donRecurringActive.id,
+                donRecurringCanceled.id,
+                donOneTimeCompleted.id,
+              ],
+            },
           },
         });
       }
@@ -725,14 +899,24 @@ describe('Admin campaigns API', () => {
     it('returns 400 when slug contains uppercase letters', async () => {
       await request(app.getHttpServer())
         .post(`/orgs/${ORG_ID}/campaigns`)
-        .send({ coalitionId, name: 'Bad Slug', slug: 'Bad-Slug', targetAmountCents: 500 })
+        .send({
+          coalitionId,
+          name: 'Bad Slug',
+          slug: 'Bad-Slug',
+          targetAmountCents: 500,
+        })
         .expect(400);
     });
 
     it('returns 400 when targetAmountCents is below the minimum (< 100)', async () => {
       await request(app.getHttpServer())
         .post(`/orgs/${ORG_ID}/campaigns`)
-        .send({ coalitionId, name: 'Cheap', slug: 'cheap', targetAmountCents: 50 })
+        .send({
+          coalitionId,
+          name: 'Cheap',
+          slug: 'cheap',
+          targetAmountCents: 50,
+        })
         .expect(400);
     });
 
@@ -845,8 +1029,12 @@ describe('Admin campaigns API', () => {
           })
           .expect(404);
       } finally {
-        await prisma.coalition.deleteMany({ where: { organizationId: OTHER_ORG } });
-        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+        await prisma.coalition.deleteMany({
+          where: { organizationId: OTHER_ORG },
+        });
+        await prisma.organization
+          .delete({ where: { id: OTHER_ORG } })
+          .catch(() => {});
       }
     });
 
@@ -871,7 +1059,10 @@ describe('Admin campaigns API', () => {
         .send({ name: 'Renamed Campaign', displayOrder: 7 })
         .expect(200);
 
-      expect(res.body).toMatchObject({ name: 'Renamed Campaign', displayOrder: 7 });
+      expect(res.body).toMatchObject({
+        name: 'Renamed Campaign',
+        displayOrder: 7,
+      });
     });
 
     it('returns 400 when status is sent in the body', async () => {
@@ -948,39 +1139,36 @@ describe('Admin campaigns API', () => {
 
   describe('POST /orgs/:orgId/campaigns/:id/transition', () => {
     it.each([
-      ['DRAFT',    'ACTIVE',    200] as const,
-      ['DRAFT',    'ARCHIVED',  200] as const,
-      ['DRAFT',    'COMPLETE',  400] as const,
-      ['DRAFT',    'DRAFT',     400] as const,
-      ['ACTIVE',   'COMPLETE',  200] as const,
-      ['ACTIVE',   'ARCHIVED',  200] as const,
-      ['ACTIVE',   'DRAFT',     400] as const,
-      ['ACTIVE',   'ACTIVE',    400] as const,
-      ['COMPLETE', 'ACTIVE',    200] as const,
-      ['COMPLETE', 'ARCHIVED',  200] as const,
-      ['COMPLETE', 'DRAFT',     400] as const,
-      ['ARCHIVED', 'DRAFT',     200] as const,
-      ['ARCHIVED', 'ACTIVE',    400] as const,
-      ['ARCHIVED', 'COMPLETE',  400] as const,
-    ])(
-      'transition %s -> %s returns %i',
-      async (from, to, expected) => {
-        // Force the campaign into the required starting state
-        await prisma.campaign.update({
-          where: { id: campaignId },
-          data: { status: from },
-        });
+      ['DRAFT', 'ACTIVE', 200] as const,
+      ['DRAFT', 'ARCHIVED', 200] as const,
+      ['DRAFT', 'COMPLETE', 400] as const,
+      ['DRAFT', 'DRAFT', 400] as const,
+      ['ACTIVE', 'COMPLETE', 200] as const,
+      ['ACTIVE', 'ARCHIVED', 200] as const,
+      ['ACTIVE', 'DRAFT', 400] as const,
+      ['ACTIVE', 'ACTIVE', 400] as const,
+      ['COMPLETE', 'ACTIVE', 200] as const,
+      ['COMPLETE', 'ARCHIVED', 200] as const,
+      ['COMPLETE', 'DRAFT', 400] as const,
+      ['ARCHIVED', 'DRAFT', 200] as const,
+      ['ARCHIVED', 'ACTIVE', 400] as const,
+      ['ARCHIVED', 'COMPLETE', 400] as const,
+    ])('transition %s -> %s returns %i', async (from, to, expected) => {
+      // Force the campaign into the required starting state
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: from },
+      });
 
-        const res = await request(app.getHttpServer())
-          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
-          .send({ to })
-          .expect(expected);
+      const res = await request(app.getHttpServer())
+        .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+        .send({ to })
+        .expect(expected);
 
-        if (expected === 200) {
-          expect(res.body.status).toBe(to);
-        }
-      },
-    );
+      if (expected === 200) {
+        expect(res.body.status).toBe(to);
+      }
+    });
 
     it('returns 409 when transitioning to ACTIVE under an ARCHIVED parent coalition', async () => {
       // Manually archive the seeded coalition to set up the invariant case:
@@ -1009,6 +1197,524 @@ describe('Admin campaigns API', () => {
         .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
         .send({})
         .expect(400);
+    });
+
+    describe('cascade-cancel on archive', () => {
+      it('ACTIVE → ARCHIVED cascades ACTIVE RECURRING donations to CANCELED; ignores ONE_TIME and pre-CANCELED', async () => {
+        // Move campaign to ACTIVE so ARCHIVED transition is legal.
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+
+        // 2 ACTIVE RECURRING donations with Stripe sub ids
+        const donRecA = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_casc_rec_a',
+            organizationId: ORG_ID,
+            userId: 'user_casc_a',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_active_a',
+          }),
+        });
+        const donRecB = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_casc_rec_b',
+            organizationId: ORG_ID,
+            userId: 'user_casc_b',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_active_b',
+          }),
+        });
+        // 1 ACTIVE ONE_TIME donation — must be untouched
+        const donOneTime = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_casc_one_time',
+            organizationId: ORG_ID,
+            userId: 'user_casc_c',
+            campaignId,
+            mode: 'ONE_TIME',
+            cadence: 'ONCE',
+            status: 'ACTIVE',
+            stripeSubscriptionId: null,
+          }),
+        });
+        // 1 pre-CANCELED RECURRING donation — must be untouched
+        const donPreCanceled = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_casc_pre_canceled',
+            organizationId: ORG_ID,
+            userId: 'user_casc_d',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'CANCELED',
+            stripeSubscriptionId: 'sub_test_pre_canceled',
+            canceledAt: new Date('2025-01-01T00:00:00Z'),
+          }),
+        });
+
+        // Seed subscriptions so FakeStripeClient's subscriptions.update finds them.
+        fakeStripe.seedSubscription({
+          id: 'sub_test_active_a',
+          customer: 'cus_casc_a',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_a',
+                price: {
+                  id: 'price_a',
+                  lookup_key: null,
+                  product: 'prod_a',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_active_b',
+          customer: 'cus_casc_b',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_b',
+                price: {
+                  id: 'price_b',
+                  lookup_key: null,
+                  product: 'prod_b',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+
+        const beforeArchive = new Date();
+
+        await request(app.getHttpServer())
+          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+          .send({ to: 'ARCHIVED' })
+          .expect(200);
+
+        // Campaign must be ARCHIVED
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+        });
+        expect(campaign?.status).toBe('ARCHIVED');
+
+        // Both RECURRING ACTIVE donations are now CANCELED with canceledAt set
+        const refreshedA = await prisma.donation.findUnique({
+          where: { id: donRecA.id },
+        });
+        const refreshedB = await prisma.donation.findUnique({
+          where: { id: donRecB.id },
+        });
+        expect(refreshedA?.status).toBe('CANCELED');
+        expect(refreshedA?.canceledAt).not.toBeNull();
+        expect(refreshedA!.canceledAt!.getTime()).toBeGreaterThanOrEqual(
+          beforeArchive.getTime(),
+        );
+        expect(refreshedB?.status).toBe('CANCELED');
+        expect(refreshedB?.canceledAt).not.toBeNull();
+        expect(refreshedB!.canceledAt!.getTime()).toBeGreaterThanOrEqual(
+          beforeArchive.getTime(),
+        );
+
+        // ONE_TIME donation is unchanged
+        const refreshedOneTime = await prisma.donation.findUnique({
+          where: { id: donOneTime.id },
+        });
+        expect(refreshedOneTime?.status).toBe('ACTIVE');
+        expect(refreshedOneTime?.canceledAt).toBeNull();
+
+        // Pre-CANCELED donation is unchanged
+        const refreshedPreCanceled = await prisma.donation.findUnique({
+          where: { id: donPreCanceled.id },
+        });
+        expect(refreshedPreCanceled?.status).toBe('CANCELED');
+        expect(refreshedPreCanceled?.canceledAt?.toISOString()).toBe(
+          '2025-01-01T00:00:00.000Z',
+        );
+
+        // Stripe was called exactly twice for subscriptions.update, each with cancel_at_period_end: true
+        const stripeCalls = fakeStripe.callsFor('subscriptions.update');
+        expect(stripeCalls).toHaveLength(2);
+        const calledSubIds = stripeCalls.map((c) => c.args[0] as string);
+        expect(calledSubIds).toEqual(
+          expect.arrayContaining(['sub_test_active_a', 'sub_test_active_b']),
+        );
+        for (const call of stripeCalls) {
+          expect(call.args[1]).toEqual({ cancel_at_period_end: true });
+        }
+      });
+
+      it('idempotency: re-archiving an already-ARCHIVED campaign returns 400 and fires no additional Stripe calls', async () => {
+        // Move campaign to ACTIVE then ARCHIVED
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+        const donIdem = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_idem_rec',
+            organizationId: ORG_ID,
+            userId: 'user_idem_a',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_idem',
+          }),
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_idem',
+          customer: 'cus_idem',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_idem',
+                price: {
+                  id: 'price_idem',
+                  lookup_key: null,
+                  product: 'prod_idem',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+
+        // First archive — must succeed and fire 1 Stripe call
+        await request(app.getHttpServer())
+          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+          .send({ to: 'ARCHIVED' })
+          .expect(200);
+
+        expect(fakeStripe.callsFor('subscriptions.update')).toHaveLength(1);
+
+        // The cascade DB write must have landed: donation is now CANCELED.
+        const refreshedIdem = await prisma.donation.findUnique({
+          where: { id: donIdem.id },
+        });
+        expect(refreshedIdem?.status).toBe('CANCELED');
+        expect(refreshedIdem?.canceledAt).not.toBeNull();
+
+        // Second archive on the same campaign — must return 400 (ARCHIVED → ARCHIVED is illegal)
+        await request(app.getHttpServer())
+          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+          .send({ to: 'ARCHIVED' })
+          .expect(400);
+
+        // No additional Stripe call was made
+        expect(fakeStripe.callsFor('subscriptions.update')).toHaveLength(1);
+      });
+
+      it('race: concurrent archive calls cascade only once (one 200, one 409)', async () => {
+        // Move campaign to ACTIVE
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+
+        const donRaceA = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_race_rec_a',
+            organizationId: ORG_ID,
+            userId: 'user_race_a',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_race_a',
+          }),
+        });
+        const donRaceB = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_race_rec_b',
+            organizationId: ORG_ID,
+            userId: 'user_race_b',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_race_b',
+          }),
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_race_a',
+          customer: 'cus_race_a',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_race_a',
+                price: {
+                  id: 'price_ra',
+                  lookup_key: null,
+                  product: 'prod_ra',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_race_b',
+          customer: 'cus_race_b',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_race_b',
+                price: {
+                  id: 'price_rb',
+                  lookup_key: null,
+                  product: 'prod_rb',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+
+        // Fire two concurrent transition requests
+        const [res1, res2] = await Promise.all([
+          request(app.getHttpServer())
+            .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+            .send({ to: 'ARCHIVED' }),
+          request(app.getHttpServer())
+            .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+            .send({ to: 'ARCHIVED' }),
+        ]);
+
+        const statuses = [res1.status, res2.status].sort((a, b) => a - b);
+        // One must succeed (200), the other must be rejected: 409 from the OCC
+        // check inside the $transaction, or 400 if the event loop serialized so
+        // the second request read the already-ARCHIVED status and hit the
+        // LEGAL_TRANSITIONS guard (ARCHIVED → ARCHIVED is illegal).
+        // Sorted ascending: statuses[0] is 200, statuses[1] is the error code.
+        expect(statuses[0]).toBe(200);
+        expect([400, 409]).toContain(statuses[1]);
+
+        // When the loser received a 409 it must carry the optimistic-concurrency
+        // error string, distinguishing the OCC path from the serialized-400 path.
+        const res409 = [res1, res2].find((r) => r.status === 409);
+        if (res409) {
+          expect(res409.body.message).toMatch(
+            /campaign status changed during transition/,
+          );
+        }
+
+        // Only the winner should have cascaded — exactly 2 sub ids were canceled
+        // (the winner processed both donations under the campaign).
+        const stripeCalls = fakeStripe.callsFor('subscriptions.update');
+        expect(stripeCalls).toHaveLength(2);
+
+        // The cascade DB writes must have landed: both donations are now CANCELED.
+        const refreshedRaceA = await prisma.donation.findUnique({
+          where: { id: donRaceA.id },
+        });
+        const refreshedRaceB = await prisma.donation.findUnique({
+          where: { id: donRaceB.id },
+        });
+        expect(refreshedRaceA?.status).toBe('CANCELED');
+        expect(refreshedRaceA?.canceledAt).not.toBeNull();
+        expect(refreshedRaceB?.status).toBe('CANCELED');
+        expect(refreshedRaceB?.canceledAt).not.toBeNull();
+      });
+
+      it('partial Stripe failure: continues batch and reports counts via logger; failed donation stays ACTIVE', async () => {
+        // Move campaign to ACTIVE so the ARCHIVED transition is legal.
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'ACTIVE' },
+        });
+
+        // 3 ACTIVE RECURRING donations; sub B will have its Stripe call staged to fail.
+        const donA = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_a',
+            organizationId: ORG_ID,
+            userId: 'user_partial_a',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_a',
+          }),
+        });
+        const donB = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_b',
+            organizationId: ORG_ID,
+            userId: 'user_partial_b',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_b',
+          }),
+        });
+        const donC = await prisma.donation.create({
+          data: donationFactory({
+            id: 'don_partial_rec_c',
+            organizationId: ORG_ID,
+            userId: 'user_partial_c',
+            campaignId,
+            mode: 'RECURRING',
+            cadence: 'MONTHLY',
+            status: 'ACTIVE',
+            stripeSubscriptionId: 'sub_test_partial_c',
+          }),
+        });
+
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_a',
+          customer: 'cus_partial_a',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_a',
+                price: {
+                  id: 'price_partial_a',
+                  lookup_key: null,
+                  product: 'prod_partial_a',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_b',
+          customer: 'cus_partial_b',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_b',
+                price: {
+                  id: 'price_partial_b',
+                  lookup_key: null,
+                  product: 'prod_partial_b',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+        fakeStripe.seedSubscription({
+          id: 'sub_test_partial_c',
+          customer: 'cus_partial_c',
+          status: 'active',
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                id: 'si_partial_c',
+                price: {
+                  id: 'price_partial_c',
+                  lookup_key: null,
+                  product: 'prod_partial_c',
+                  unit_amount: 2500,
+                  currency: 'usd',
+                  active: true,
+                },
+                current_period_end: 9999999999,
+              },
+            ],
+          },
+        });
+
+        // Stage a Stripe error for sub B — simulates a mid-batch outage.
+        fakeStripe.failNextSubscriptionUpdate(
+          'sub_test_partial_b',
+          new Error('Stripe simulated outage'),
+        );
+
+        // Archive the campaign — must succeed even though sub B will fail.
+        await request(app.getHttpServer())
+          .post(`/orgs/${ORG_ID}/campaigns/${campaignId}/transition`)
+          .send({ to: 'ARCHIVED' })
+          .expect(200);
+
+        // All three Stripe calls were attempted (the batch does not abort on error).
+        const stripeCalls = fakeStripe.callsFor('subscriptions.update');
+        expect(stripeCalls).toHaveLength(3);
+
+        // Donations A and C succeeded — status CANCELED, canceledAt set.
+        const refreshedA = await prisma.donation.findUnique({
+          where: { id: donA.id },
+        });
+        const refreshedC = await prisma.donation.findUnique({
+          where: { id: donC.id },
+        });
+        expect(refreshedA?.status).toBe('CANCELED');
+        expect(refreshedA?.canceledAt).not.toBeNull();
+        expect(refreshedC?.status).toBe('CANCELED');
+        expect(refreshedC?.canceledAt).not.toBeNull();
+
+        // Donation B failed at the Stripe call — cascade caught the throw and
+        // did NOT proceed to the DB update, so B remains ACTIVE.
+        const refreshedB = await prisma.donation.findUnique({
+          where: { id: donB.id },
+        });
+        expect(refreshedB?.status).toBe('ACTIVE');
+        expect(refreshedB?.canceledAt).toBeNull();
+
+        // The campaign itself archived successfully despite the partial failure.
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+        });
+        expect(campaign?.status).toBe('ARCHIVED');
+
+        // The admin banner surface (activeRecurringCount from the GET endpoint)
+        // must reflect the 1 residual ACTIVE RECURRING donation so the admin
+        // can see the cascade did not fully complete.
+        const getRes = await request(app.getHttpServer())
+          .get(`/orgs/${ORG_ID}/campaigns/${campaignId}`)
+          .expect(200);
+        expect(getRes.body.activeRecurringCount).toBe(1);
+      });
     });
   });
 
@@ -1093,17 +1799,25 @@ describe('Admin campaigns API', () => {
       } finally {
         // Cleanup runs even if an assertion above throws, so a flake doesn't
         // poison subsequent tests with leftover foreign rows.
-        await prisma.campaign.delete({ where: { id: foreignCampaign.id } }).catch(() => {});
-        await prisma.coalition.delete({ where: { id: foreignCoalition.id } }).catch(() => {});
-        await prisma.organizationMember.delete({
-          where: {
-            organizationId_userId: {
-              organizationId: OTHER_ORG,
-              userId: OTHER_USER,
+        await prisma.campaign
+          .delete({ where: { id: foreignCampaign.id } })
+          .catch(() => {});
+        await prisma.coalition
+          .delete({ where: { id: foreignCoalition.id } })
+          .catch(() => {});
+        await prisma.organizationMember
+          .delete({
+            where: {
+              organizationId_userId: {
+                organizationId: OTHER_ORG,
+                userId: OTHER_USER,
+              },
             },
-          },
-        }).catch(() => {});
-        await prisma.organization.delete({ where: { id: OTHER_ORG } }).catch(() => {});
+          })
+          .catch(() => {});
+        await prisma.organization
+          .delete({ where: { id: OTHER_ORG } })
+          .catch(() => {});
       }
     });
   });

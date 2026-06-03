@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { OrganizationRole } from '@organizer-hub/db/api';
@@ -15,6 +16,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CoalitionsService } from './coalitions.service';
 import { CreateCoalitionDto } from './dto/create-coalition.dto';
+import { ListCoalitionsAdminDto } from './dto/list-coalitions-admin.dto';
 import { UpdateCoalitionDto } from './dto/update-coalition.dto';
 
 // Org-scoped admin surface for coalition CRUD. RolesGuard reads :orgId from the
@@ -28,8 +30,8 @@ export class AdminCoalitionsController {
 
   @Get()
   @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
-  list(@Param('orgId') orgId: string) {
-    return this.coalitions.listAllForAdmin(orgId);
+  list(@Param('orgId') orgId: string, @Query() query: ListCoalitionsAdminDto) {
+    return this.coalitions.listAllForAdmin(orgId, query);
   }
 
   @Get(':id')
@@ -60,5 +62,12 @@ export class AdminCoalitionsController {
   @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   archive(@Param('orgId') orgId: string, @Param('id') id: string) {
     return this.coalitions.archiveForAdmin(orgId, id);
+  }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
+  restore(@Param('orgId') orgId: string, @Param('id') id: string) {
+    return this.coalitions.restoreForAdmin(orgId, id);
   }
 }

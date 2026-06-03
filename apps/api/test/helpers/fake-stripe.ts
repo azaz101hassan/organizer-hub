@@ -166,6 +166,15 @@ export class FakeStripeClient {
     idempotencyKey?: string;
   }> = [];
   private nextId = 1;
+  // Per-subscription staged errors for subscriptions.update. The entry is
+  // consumed (deleted) on first use so subsequent calls succeed normally.
+  private readonly subscriptionUpdateErrors = new Map<string, Error>();
+
+  /** Stage an error to be thrown by the next subscriptions.update call for
+   *  the given subscription id. The entry is consumed on first use. */
+  failNextSubscriptionUpdate(subId: string, err: Error): void {
+    this.subscriptionUpdateErrors.set(subId, err);
+  }
 
   // The fake's `stripe` property mirrors `stripeClient.stripe.<…>` access from
   // the production code. Typed as `unknown` and cast at the boundary — the
@@ -284,6 +293,13 @@ export class FakeStripeClient {
             method: 'subscriptions.update',
             args: [id, params],
           });
+          // Staged per-subscription error — consumed on first use so retries
+          // succeed. Check after recording the call so callsFor() counts it.
+          const stagedErr = this.subscriptionUpdateErrors.get(id);
+          if (stagedErr !== undefined) {
+            this.subscriptionUpdateErrors.delete(id);
+            throw stagedErr;
+          }
           const sub = this.subscriptions.get(id);
           if (!sub) throw new Error(`No such subscription: ${id}`);
           if (params.cancel_at_period_end !== undefined) {
@@ -435,6 +451,7 @@ export class FakeStripeClient {
     this.invoices.clear();
     this.charges.clear();
     this.refunds.length = 0;
+    this.subscriptionUpdateErrors.clear();
     this.nextId = 1;
   }
   callsFor(method: string): FakeStripeCall[] {
