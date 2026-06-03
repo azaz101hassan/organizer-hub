@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { SseController } from './sse.controller';
+import { SseMintThrottlerGuard } from './sse-mint-throttler.guard';
 import { SseStreamTokenGuard } from './sse-stream-token.guard';
 import { SseTokenService } from './sse-token.service';
 import { WaitlistStream } from './waitlist-stream';
@@ -12,7 +13,12 @@ import { WaitlistStream } from './waitlist-stream';
 @Global()
 @Module({
   controllers: [SseController],
-  providers: [WaitlistStream, SseTokenService, SseStreamTokenGuard],
+  providers: [
+    WaitlistStream,
+    SseTokenService,
+    SseStreamTokenGuard,
+    SseMintThrottlerGuard,
+  ],
   exports: [WaitlistStream],
 })
 export class RealtimeModule {}

@@ -7,13 +7,14 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { OrganizationRole } from '@organizer-hub/db/api';
 import { Observable, takeUntil, timer } from 'rxjs';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard, type AuthenticatedUser } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { SseMintThrottlerGuard } from './sse-mint-throttler.guard';
 import { SseStreamTokenGuard } from './sse-stream-token.guard';
 import { SseTokenService } from './sse-token.service';
 import { WaitlistStream } from './waitlist-stream';
@@ -35,12 +36,13 @@ export class SseController {
   ) {}
 
   // Mint a single-use stream token. Header-Bearer JwtAuthGuard + RolesGuard
-  // (only an OWNER/ADMIN of :orgId mints) + ThrottlerGuard. ThrottlerGuard MUST
-  // be in the list — it is NOT global in this app, so @Throttle alone is a
-  // no-op (deepening feasibility). 10/min is ample (a healthy client mints ~once
-  // per reconnect).
+  // (only an OWNER/ADMIN of :orgId mints) + SseMintThrottlerGuard. The
+  // throttler MUST be in the @UseGuards list — it is NOT global in this app, so
+  // @Throttle alone is a no-op. The custom guard keys by req.user.sub instead
+  // of req.ip so co-located admins (NAT or shared dev host) do not share a
+  // bucket. 10/min is ample (a healthy client mints ~once per reconnect).
   @Post('stream-token')
-  @UseGuards(JwtAuthGuard, RolesGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SseMintThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Roles(OrganizationRole.OWNER, OrganizationRole.ADMIN)
   mintStreamToken(
