@@ -14,9 +14,6 @@ importers:
       '@organizer-hub/db':
         specifier: workspace:*
         version: link:packages/db
-      playwright:
-        specifier: ^1.60.0
-        version: 1.60.0
       turbo:
         specifier: ^2.5.4
         version: 2.9.16
