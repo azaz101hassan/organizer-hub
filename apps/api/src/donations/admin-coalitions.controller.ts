@@ -21,8 +21,6 @@ import { UpdateCoalitionDto } from './dto/update-coalition.dto';
 
 // Org-scoped admin surface for coalition CRUD. RolesGuard reads :orgId from the
 // path: 404 for non-members, 403 for members with insufficient role.
-// No DonationsFeatureFlagGuard — admins must be able to provision coalitions
-// even before donations are enabled on the org.
 @Controller('orgs/:orgId/coalitions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminCoalitionsController {

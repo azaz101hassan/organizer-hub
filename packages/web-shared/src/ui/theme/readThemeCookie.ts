@@ -1,8 +1,7 @@
-// packages/web-shared/src/ui/theme/readThemeCookie.ts
 import { cookies } from "next/headers";
+import { type Theme, VALID_THEMES } from "./themeTypes";
 
-export type Theme = "atrium" | "noir" | "vellum";
-const VALID: ReadonlySet<string> = new Set<Theme>(["atrium", "noir", "vellum"]);
+export type { Theme } from "./themeTypes";
 
 export async function readThemeCookie(
   name: string,
@@ -10,5 +9,5 @@ export async function readThemeCookie(
 ): Promise<Theme> {
   const store = await cookies();
   const raw = store.get(name)?.value;
-  return raw && VALID.has(raw) ? (raw as Theme) : fallback;
+  return raw && VALID_THEMES.has(raw) ? (raw as Theme) : fallback;
 }

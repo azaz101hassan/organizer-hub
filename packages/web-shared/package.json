@@ -15,6 +15,7 @@
     "./ui/tokens.theme.vellum.css": "./src/ui/tokens.theme.vellum.css",
     "./ui/tokens.layout.css": "./src/ui/tokens.layout.css",
     "./ui/theme": "./src/ui/theme/index.ts",
+    "./ui/theme/server": "./src/ui/theme/readThemeCookie.ts",
     "./ui": {
       "types": "./src/ui/index.ts",
       "default": "./src/ui/index.ts"

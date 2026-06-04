@@ -6,7 +6,7 @@ import {
   Space_Grotesk,
   Spline_Sans_Mono,
 } from "next/font/google";
-import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme";
+import { readThemeCookie } from "@organizer-hub/web-shared/ui/theme/server";
 import { AdminShell } from "../components/AdminShell";
 import "./globals.css";
 

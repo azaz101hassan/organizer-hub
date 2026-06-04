@@ -21,7 +21,7 @@ function money0(cents: number) {
 
 async function fetchEvents(): Promise<PaymentEventListPage> {
   try {
-    return await listPaymentEvents({ limit: 500 });
+    return await listPaymentEvents({ limit: 100 });
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err;
     if (err instanceof ApiError) {

@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Theme } from "./readThemeCookie";
+import type { Theme } from "./themeTypes";
 import { setThemeCookie } from "./setThemeCookie";
 
 const THEMES: { value: Theme; label: string }[] = [

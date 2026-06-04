@@ -3,10 +3,9 @@ import type { Request } from 'express';
 import { DonationsService } from './donations.service';
 import { CreateDonationCheckoutDto } from './dto/create-donation-checkout.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { DonationsFeatureFlagGuard } from './donations-feature-flag.guard';
 
 @Controller('billing/checkout')
-@UseGuards(JwtAuthGuard, DonationsFeatureFlagGuard)
+@UseGuards(JwtAuthGuard)
 export class DonationsController {
   constructor(private readonly donations: DonationsService) {}
 

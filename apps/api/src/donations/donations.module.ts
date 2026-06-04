@@ -1,5 +1,4 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
-import { DonationsFeatureFlagGuard } from './donations-feature-flag.guard';
 import { DonationsService } from './donations.service';
 import { DonationsController } from './donations.controller';
 import { DonationManagementController } from './donation-management.controller';
@@ -29,18 +28,16 @@ import { CampaignsService } from './campaigns.service';
   ],
   providers: [
     DonationsService,
-    DonationsFeatureFlagGuard,
     DonationsOrgResolverMiddleware,
     CoalitionsService,
     CampaignsService,
   ],
-  exports: [DonationsService, DonationsFeatureFlagGuard, CampaignsService],
+  exports: [DonationsService, CampaignsService],
 })
 export class DonationsModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Resolve the campaign's organization onto req.organization before the
-    // DonationsFeatureFlagGuard runs so it can gate by donationsEnabled.
-    // The middleware also falls back to the house org for public reads
+    // Resolve the campaign's organization onto req.organization so controllers
+    // can scope reads by org. Falls back to the house org for public reads
     // (GET /coalitions, GET /campaigns/:slug) where no campaign or donation
     // id is present.
     consumer

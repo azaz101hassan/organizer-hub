@@ -22,7 +22,7 @@ import { UpdateCampaignDto } from './dto/update-campaign.dto';
 
 // Org-scoped admin surface for campaign CRUD + status transitions. RolesGuard
 // reads :orgId from the path: 404 for non-members, 403 for members with
-// insufficient role. No DonationsFeatureFlagGuard — admins manage the feature.
+// insufficient role.
 @Controller('orgs/:orgId/campaigns')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminCampaignsController {

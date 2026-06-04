@@ -73,6 +73,7 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "maxWorkers": 1,
     "setupFiles": ["<rootDir>/../test/setup-env.ts"],
     "transform": {
       "^.+\\.(t|j)s$": [

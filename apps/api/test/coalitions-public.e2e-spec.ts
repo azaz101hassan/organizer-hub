@@ -93,16 +93,6 @@ describe('GET /coalitions (public list)', () => {
     expect(ids).not.toContain('coal_pub_archived');
   });
 
-  it('returns 404 when donationsEnabled=false on the org', async () => {
-    await prisma.organization.update({
-      where: { id: HOUSE_ORG_ID },
-      data: { donationsEnabled: false },
-    });
-
-    const res = await request(app.getHttpServer()).get('/coalitions');
-    expect(res.status).toBe(404);
-  });
-
   it('childCampaignCount equals number of campaigns, not number of payment-event rows', async () => {
     // Seed a second ACTIVE campaign in the same coalition.
     await prisma.campaign.create({
@@ -256,16 +246,6 @@ describe('GET /coalitions/:slug (public detail)', () => {
       donorCount: 0,
       status: 'ACTIVE',
     });
-  });
-
-  it('returns 404 when donationsEnabled=false on the org', async () => {
-    await prisma.organization.update({
-      where: { id: HOUSE_ORG_ID },
-      data: { donationsEnabled: false },
-    });
-
-    const res = await request(app.getHttpServer()).get('/coalitions/a');
-    expect(res.status).toBe(404);
   });
 
   it('counts a canceled-recurring donor toward donorCount (symmetric with raisedCents)', async () => {

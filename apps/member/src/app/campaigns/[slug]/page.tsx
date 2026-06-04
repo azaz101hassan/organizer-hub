@@ -5,7 +5,6 @@ import Image from "next/image";
 import {
   ApiError,
   publicApiFetch,
-  donationsEnabledForOrg as donationsEnabledForOrgRaw,
 } from "@organizer-hub/web-shared";
 import {
   Eyebrow,
@@ -42,7 +41,6 @@ interface CampaignDetail {
   coalition: { id: string; slug: string; name: string };
 }
 
-const donationsEnabled = cache(donationsEnabledForOrgRaw);
 const getCampaign = cache((slug: string) =>
   publicApiFetch<CampaignDetail>(`/campaigns/${encodeURIComponent(slug)}`),
 );
@@ -54,7 +52,6 @@ export default async function CampaignPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ cadence?: string; amount?: string; error?: string }>;
 }) {
-  if (!(await donationsEnabled())) notFound();
   const { slug } = await params;
   const sp = await searchParams;
 
@@ -197,7 +194,6 @@ export async function generateMetadata({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  if (!(await donationsEnabled())) return { title: "Campaign" };
   const { slug } = await params;
   try {
     const data = await getCampaign(slug);

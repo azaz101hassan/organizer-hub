@@ -10,11 +10,10 @@ import { DonationsService } from './donations.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/jwt-auth.guard';
-import { DonationsFeatureFlagGuard } from './donations-feature-flag.guard';
 import { ListMineDto } from './dto/list-mine.dto';
 
 @Controller('donations')
-@UseGuards(JwtAuthGuard, DonationsFeatureFlagGuard)
+@UseGuards(JwtAuthGuard)
 export class DonationsReadController {
   constructor(private readonly donations: DonationsService) {}
 

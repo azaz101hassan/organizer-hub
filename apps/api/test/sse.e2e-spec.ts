@@ -162,6 +162,27 @@ describe('SSE stream + query-token auth (e2e)', () => {
     await mintReq(orgId).expect(404);
   });
 
+  // The throttle key is per-user, not per-IP: one admin filling their own
+  // bucket must not deny a co-located admin (NAT, shared dev host) from
+  // minting. This is the design the comment on mintStreamToken describes —
+  // "a healthy client mints ~once per reconnect" — but the @nestjs/throttler
+  // default tracker keys by req.ip and silently violates it.
+  it('throttles the mint endpoint per user, not per IP', async () => {
+    currentSub.value = 'owner-sub';
+    // Burst owner-sub well over the per-user cap to fill its bucket.
+    const ownerStatuses: number[] = [];
+    for (let i = 0; i < 15; i++) {
+      const res = await mintReq(orgId);
+      ownerStatuses.push(res.status);
+    }
+    expect(ownerStatuses).toContain(429);
+
+    // A different authenticated user shares the IP but has its own bucket.
+    currentSub.value = 'admin-sub';
+    const res = await mintReq(orgId);
+    expect(res.status).toBe(201);
+  });
+
   // Runs last: prior successful mints share this throttle window, so firing a
   // burst well over the limit reliably trips 429 regardless of prior usage.
   it('throttles the mint endpoint', async () => {

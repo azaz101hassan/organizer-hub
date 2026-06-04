@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "e2e"
 
 # Force postcss >= 8.5.10 across the workspace to pull Next's bundled
 # 8.4.31 out of the install graph (GHSA-qx2v-qp2m-jg93). postcss runs only

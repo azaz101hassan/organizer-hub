@@ -5,7 +5,6 @@ import {
   apiFetch,
   UnauthorizedError,
   getHouseOrgId,
-  donationsEnabledForOrg,
   listDonationsAdmin,
   type DonationListPage,
 } from "@organizer-hub/web-shared";
@@ -119,9 +118,6 @@ export default async function AdminCampaignDetail({
   searchParams: Promise<{ cursor?: string }>;
 }) {
   const orgId = getHouseOrgId();
-  const enabled = await donationsEnabledForOrg();
-  if (!enabled) notFound();
-
   const { id } = await params;
   const { cursor } = await searchParams;
 
@@ -146,6 +142,9 @@ export default async function AdminCampaignDetail({
   const donations = donationPage.items as DonationRow[];
   const nextDonationHref = donationPage.nextCursor
     ? `/campaigns/${encodeURIComponent(id)}?cursor=${encodeURIComponent(donationPage.nextCursor)}`
+    : null;
+  const backToStartHref = cursor
+    ? `/campaigns/${encodeURIComponent(id)}`
     : null;
 
   const { tone: statusTone, label: statusLabel } =
@@ -252,9 +251,9 @@ export default async function AdminCampaignDetail({
           {campaign.activeRecurringCount === 1
             ? "recurring donation is"
             : "recurring donations are"}{" "}
-          still active despite this campaign being archived. Archiving does not
-          cancel existing subscriptions — open a donation to cancel it
-          individually.
+          still active after archive. Auto-cancel was attempted on each but did
+          not complete — they should reconcile as Stripe webhooks land, or open
+          each donation to cancel manually.
         </div>
       )}
 
@@ -399,11 +398,29 @@ export default async function AdminCampaignDetail({
         rows={donations}
         empty="No donations on this campaign yet."
       />
-      {nextDonationHref && (
-        <div style={{ marginTop: 16 }}>
-          <Link href={nextDonationHref} className="link" style={{ fontSize: 13.5 }}>
-            Next page →
-          </Link>
+      {(backToStartHref || nextDonationHref) && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 13.5,
+          }}
+        >
+          {backToStartHref ? (
+            <Link href={backToStartHref} className="link">
+              ← Back to start
+            </Link>
+          ) : (
+            <span />
+          )}
+          {nextDonationHref ? (
+            <Link href={nextDonationHref} className="link">
+              Next page →
+            </Link>
+          ) : (
+            <span />
+          )}
         </div>
       )}
     </>

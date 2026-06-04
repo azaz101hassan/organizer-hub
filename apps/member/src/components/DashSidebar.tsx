@@ -7,11 +7,9 @@ import type { Theme } from "@organizer-hub/web-shared/ui/theme";
 export function DashSidebar({
   session,
   currentTheme,
-  donationsEnabled,
 }: {
   session: SessionIdentity;
   currentTheme: Theme;
-  donationsEnabled: boolean;
 }) {
   const displayName = session.name ?? session.email ?? session.sub ?? "";
   const initials =
@@ -43,11 +41,9 @@ export function DashSidebar({
       <NavItem href="/dashboard/membership" icon="crown">
         My membership
       </NavItem>
-      {donationsEnabled && (
-        <NavItem href="/dashboard/donations" icon="dollar">
-          Donations
-        </NavItem>
-      )}
+      <NavItem href="/dashboard/donations" icon="dollar">
+        Donations
+      </NavItem>
       <NavItem href="/dashboard/requests" icon="ticket">
         My requests
       </NavItem>

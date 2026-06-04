@@ -14,4 +14,3 @@ export type { TokenResponse } from "./oidc/refresh";
 export { createAuthRefreshMiddleware } from "./middleware";
 export type { AuthMiddlewareOptions } from "./middleware";
 export { getHouseOrgId } from "./house-org";
-export { donationsEnabledForOrg } from "./api/donations-enabled";
