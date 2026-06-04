@@ -108,6 +108,9 @@ export default async function CoalitionDetailPage({
   const nextCampaignHref = campaignPage.nextCursor
     ? `/coalitions/${encodeURIComponent(id)}?cursor=${encodeURIComponent(campaignPage.nextCursor)}`
     : null;
+  const backToStartHref = cursor
+    ? `/coalitions/${encodeURIComponent(id)}`
+    : null;
 
   const columns: Column<CampaignRow>[] = [
     {
@@ -196,11 +199,29 @@ export default async function CoalitionDetailPage({
         rows={campaigns}
         empty="No campaigns under this coalition yet."
       />
-      {nextCampaignHref && (
-        <div style={{ marginTop: 16 }}>
-          <Link href={nextCampaignHref} className="link" style={{ fontSize: 13.5 }}>
-            Next page →
-          </Link>
+      {(backToStartHref || nextCampaignHref) && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 13.5,
+          }}
+        >
+          {backToStartHref ? (
+            <Link href={backToStartHref} className="link">
+              ← Back to start
+            </Link>
+          ) : (
+            <span />
+          )}
+          {nextCampaignHref ? (
+            <Link href={nextCampaignHref} className="link">
+              Next page →
+            </Link>
+          ) : (
+            <span />
+          )}
         </div>
       )}
     </>

@@ -143,6 +143,9 @@ export default async function AdminCampaignDetail({
   const nextDonationHref = donationPage.nextCursor
     ? `/campaigns/${encodeURIComponent(id)}?cursor=${encodeURIComponent(donationPage.nextCursor)}`
     : null;
+  const backToStartHref = cursor
+    ? `/campaigns/${encodeURIComponent(id)}`
+    : null;
 
   const { tone: statusTone, label: statusLabel } =
     STATUS_PILL[campaign.status] ?? { tone: "pending" as PillTone, label: campaign.status };
@@ -395,11 +398,29 @@ export default async function AdminCampaignDetail({
         rows={donations}
         empty="No donations on this campaign yet."
       />
-      {nextDonationHref && (
-        <div style={{ marginTop: 16 }}>
-          <Link href={nextDonationHref} className="link" style={{ fontSize: 13.5 }}>
-            Next page →
-          </Link>
+      {(backToStartHref || nextDonationHref) && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 13.5,
+          }}
+        >
+          {backToStartHref ? (
+            <Link href={backToStartHref} className="link">
+              ← Back to start
+            </Link>
+          ) : (
+            <span />
+          )}
+          {nextDonationHref ? (
+            <Link href={nextDonationHref} className="link">
+              Next page →
+            </Link>
+          ) : (
+            <span />
+          )}
         </div>
       )}
     </>

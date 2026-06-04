@@ -60,15 +60,23 @@ export default function TransactionsTable({
   nextCursor: string | null;
   params: TableParams;
 }) {
-  const nextHref = (() => {
-    if (!nextCursor) return null;
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v && k !== "cursor") qs.set(k, v);
-    }
-    qs.set("cursor", nextCursor);
-    return `/transactions?${qs.toString()}`;
-  })();
+  const filtersOnly = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v && k !== "cursor") filtersOnly.set(k, v);
+  }
+  const filtersTail = filtersOnly.toString();
+  const nextHref = nextCursor
+    ? `/transactions?${(() => {
+        const qs = new URLSearchParams(filtersOnly);
+        qs.set("cursor", nextCursor);
+        return qs.toString();
+      })()}`
+    : null;
+  const backHref = params.cursor
+    ? filtersTail
+      ? `/transactions?${filtersTail}`
+      : "/transactions"
+    : null;
 
   const columns: Column<PaymentEventView>[] = [
     {
@@ -140,11 +148,29 @@ export default function TransactionsTable({
         rows={items}
         empty="No transactions match the current filters."
       />
-      {nextHref && (
-        <div style={{ marginTop: 16 }}>
-          <Link href={nextHref} className="link" style={{ fontSize: 13.5 }}>
-            Next page →
-          </Link>
+      {(backHref || nextHref) && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 13.5,
+          }}
+        >
+          {backHref ? (
+            <Link href={backHref} className="link">
+              ← Back to start
+            </Link>
+          ) : (
+            <span />
+          )}
+          {nextHref ? (
+            <Link href={nextHref} className="link">
+              Next page →
+            </Link>
+          ) : (
+            <span />
+          )}
         </div>
       )}
     </div>

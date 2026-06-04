@@ -59,14 +59,22 @@ export default async function CoalitionsPage({
 
   const filtered = page.items;
 
-  const nextHref = (() => {
-    if (!page.nextCursor) return null;
-    const qs = new URLSearchParams();
-    if (params.status) qs.set("status", params.status);
-    if (params.q) qs.set("q", params.q);
-    qs.set("cursor", page.nextCursor);
-    return `/coalitions?${qs.toString()}`;
-  })();
+  const filtersOnly = new URLSearchParams();
+  if (params.status) filtersOnly.set("status", params.status);
+  if (params.q) filtersOnly.set("q", params.q);
+  const filtersTail = filtersOnly.toString();
+  const nextHref = page.nextCursor
+    ? `/coalitions?${(() => {
+        const qs = new URLSearchParams(filtersOnly);
+        qs.set("cursor", page.nextCursor!);
+        return qs.toString();
+      })()}`
+    : null;
+  const backHref = params.cursor
+    ? filtersTail
+      ? `/coalitions?${filtersTail}`
+      : "/coalitions"
+    : null;
 
   const columns: Column<AdminCoalitionRow>[] = [
     {
@@ -136,11 +144,29 @@ export default async function CoalitionsPage({
         rows={filtered}
         empty="No coalitions match the current filters."
       />
-      {nextHref && (
-        <div style={{ marginTop: 16 }}>
-          <Link href={nextHref} className="link" style={{ fontSize: 13.5 }}>
-            Next page →
-          </Link>
+      {(backHref || nextHref) && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 13.5,
+          }}
+        >
+          {backHref ? (
+            <Link href={backHref} className="link">
+              ← Back to start
+            </Link>
+          ) : (
+            <span />
+          )}
+          {nextHref ? (
+            <Link href={nextHref} className="link">
+              Next page →
+            </Link>
+          ) : (
+            <span />
+          )}
         </div>
       )}
     </>
