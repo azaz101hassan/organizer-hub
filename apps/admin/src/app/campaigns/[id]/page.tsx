@@ -248,9 +248,9 @@ export default async function AdminCampaignDetail({
           {campaign.activeRecurringCount === 1
             ? "recurring donation is"
             : "recurring donations are"}{" "}
-          still active despite this campaign being archived. Archiving does not
-          cancel existing subscriptions — open a donation to cancel it
-          individually.
+          still active after archive. Auto-cancel was attempted on each but did
+          not complete — they should reconcile as Stripe webhooks land, or open
+          each donation to cancel manually.
         </div>
       )}
 
