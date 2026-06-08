@@ -19,6 +19,7 @@ import {
 import { PageHead } from "../../../components/PageHead";
 import CoalitionEditForm from "./CoalitionEditForm";
 import NewCampaignDialog from "./NewCampaignDialog";
+import StatusActions from "./StatusActions";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,11 @@ function fmtUsd(cents: number) {
     maximumFractionDigits: 0,
   }).format(cents / 100);
 }
+
+const COALITION_STATUS_PILL: Record<string, { tone: PillTone; label: string }> = {
+  ACTIVE: { tone: "active", label: "Active" },
+  ARCHIVED: { tone: "lapsed", label: "Archived" },
+};
 
 const CAMPAIGN_STATUS_PILL: Record<CampaignStatus, { tone: PillTone; label: string }> = {
   DRAFT: { tone: "pending", label: "Draft" },
@@ -167,6 +173,9 @@ export default async function CoalitionDetailPage({
     },
   ];
 
+  const { tone: coalitionStatusTone, label: coalitionStatusLabel } =
+    COALITION_STATUS_PILL[coalition.status] ?? { tone: "pending" as PillTone, label: coalition.status };
+
   return (
     <>
       <PageHead
@@ -176,8 +185,21 @@ export default async function CoalitionDetailPage({
             ← Coalitions
           </Link>
         }
-        actions={<NewCampaignDialog coalitionId={id} />}
+        actions={
+          <>
+            <StatusActions coalition={{ id: coalition.id, status: coalition.status }} />
+            <NewCampaignDialog coalitionId={id} />
+          </>
+        }
       />
+
+      {/* Status badge row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+        <Pill tone={coalitionStatusTone}>{coalitionStatusLabel}</Pill>
+        <span className="faint" style={{ fontSize: 12 }}>
+          {coalition.slug}
+        </span>
+      </div>
 
       <Card>
         <CoalitionEditForm coalition={coalition} />

@@ -121,6 +121,53 @@ export async function updateCoalition(
   return { ok: true };
 }
 
+// ─── Transition Coalition ───────────────────────────────────────────────────
+
+export interface CoalitionTransitionFormState {
+  error?: string;
+  ok?: boolean;
+}
+
+const VALID_OPS = new Set(["archive", "restore"]);
+
+export async function transitionCoalition(
+  id: string,
+  _prev: CoalitionTransitionFormState,
+  formData: FormData,
+): Promise<CoalitionTransitionFormState> {
+  const orgId = getHouseOrgId();
+  const op = String(formData.get("op") ?? "").trim();
+
+  if (!VALID_OPS.has(op)) {
+    return { error: "Invalid operation." };
+  }
+
+  try {
+    await apiFetch(
+      `/orgs/${encodeURIComponent(orgId)}/coalitions/${encodeURIComponent(id)}/${op}`,
+      { method: "POST" },
+    );
+  } catch (err) {
+    if (err instanceof UnauthorizedError) redirect("/auth/login");
+    if (err instanceof ApiError) {
+      if (err.status === 409) {
+        return {
+          error: parseBodyMessage(
+            err.body,
+            "This coalition was already updated by someone else. Please refresh the page and try again.",
+          ),
+        };
+      }
+      return { error: `Could not update the coalition (${err.status}).` };
+    }
+    throw err;
+  }
+
+  revalidatePath(`/coalitions/${id}`);
+  revalidatePath("/coalitions");
+  return { ok: true };
+}
+
 // ─── Create Campaign ────────────────────────────────────────────────────────
 
 export interface CampaignCreateFormState {
