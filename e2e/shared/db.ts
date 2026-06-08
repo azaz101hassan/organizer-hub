@@ -23,6 +23,23 @@ export function lookupAccountsUserId(
   return id;
 }
 
+// Re-create the house org row if it was wiped by API e2e specs (those suites
+// run prisma.organization.deleteMany which removes the seed row). Mirrors the
+// canonical values from apps/api/scripts/seed.ts. ON CONFLICT DO NOTHING
+// (bare, no target) covers both the id PK and the unique slug constraint,
+// making the call safe to run even when the row already exists.
+export function upsertHouseOrg(
+  apiDatabaseUrl: string,
+  houseOrgId: string,
+): void {
+  psql(
+    apiDatabaseUrl,
+    `INSERT INTO organizations (id, name, slug, created_by, created_at, updated_at) ` +
+      `VALUES ('${houseOrgId}', 'House Organization', 'house', 'system', NOW(), NOW()) ` +
+      `ON CONFLICT DO NOTHING`,
+  );
+}
+
 // Grant the user OWNER on the house org. A fresh OIDC signup arrives with no
 // memberships, so admin routes return 404 until this row exists. The id is
 // generated locally to avoid relying on a DB default, matching the predecessor

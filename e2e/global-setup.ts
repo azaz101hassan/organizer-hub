@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadE2EEnv } from './shared/env';
 import { signupViaMember, signinExistingViaApp } from './shared/accounts';
-import { grantHouseOwner, lookupAccountsUserId } from './shared/db';
+import { grantHouseOwner, lookupAccountsUserId, upsertHouseOrg } from './shared/db';
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const repoRoot =
@@ -27,6 +27,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     );
 
     const userId = lookupAccountsUserId(env.accountsDatabaseUrl, creds.email);
+    upsertHouseOrg(env.apiDatabaseUrl, env.houseOrgId);
     grantHouseOwner(env.apiDatabaseUrl, env.houseOrgId, userId);
 
     await memberContext.storageState({ path: join(authDir, 'member.json') });
