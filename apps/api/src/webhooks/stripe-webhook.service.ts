@@ -799,9 +799,10 @@ export class StripeWebhookService {
 
   // Handles invoice.payment_succeeded for donation subscriptions.
   //
-  // Always promotes Donation PENDING → ACTIVE (covers both the first-invoice
-  // path and the edge case where a renewal arrives before payment_intent.succeeded
-  // flipped the status).
+  // Promotes Donation PENDING → ACTIVE when the status is PENDING (covers both
+  // the first-invoice path and the edge case where a renewal arrives before
+  // payment_intent.succeeded flipped the status). A CANCELED donation is never
+  // reactivated — the status promotion guard below is status=PENDING only.
   //
   // Does NOT write a new PaymentEvent for billing_reason='subscription_create'
   // because the checkout-session PaymentEvent (written by handleCheckoutCreated
@@ -810,7 +811,10 @@ export class StripeWebhookService {
   //
   // For all subsequent invoices (billing_reason !== 'subscription_create') a
   // fresh kind=DONATION, status=SUCCEEDED PaymentEvent is inserted, idempotent
-  // on stripeInvoiceId.
+  // on stripeInvoiceId. This path runs even when the donation is CANCELED:
+  // Stripe charged the donor real money, so the ledger must reflect it.
+  // True webhook replays are screened by the stripeInvoiceId idempotency check
+  // below — a pre-existing SUCCEEDED PE for the same invoice is a no-op.
   private async handleDonationInvoicePaid(
     inv: {
       id: string;
@@ -866,16 +870,18 @@ export class StripeWebhookService {
       return { recorded: false };
     }
 
-    // Guard: skip replayed invoices against a since-canceled donation so a
-    // historical webhook replay does not pump fresh PaymentEvents into the ledger.
+    // When the donation has already been canceled, Stripe may still deliver
+    // invoice.payment_succeeded because the charge settled before the
+    // cancellation propagated. The money is real — record it. Replays of an
+    // already-recorded invoice are handled by the stripeInvoiceId idempotency
+    // check further below (existing SUCCEEDED PE → no-op).
     if (donation.status === DonationStatus.CANCELED) {
       this.logger.warn(
-        `invoice.payment_succeeded for canceled donation ${donation.id} (invoice ${inv.id}); skipping`,
+        `invoice.payment_succeeded for canceled donation ${donation.id} (invoice ${inv.id}); recording PaymentEvent without reactivating`,
       );
-      return { recorded: false };
     }
 
-    // Promote PENDING → ACTIVE regardless of billing_reason.
+    // Promote PENDING → ACTIVE; does not touch CANCELED rows.
     if (donation.status === DonationStatus.PENDING) {
       await this.prisma.donation.update({
         where: { id: donation.id },

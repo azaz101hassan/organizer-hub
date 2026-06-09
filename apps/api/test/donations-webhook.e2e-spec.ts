@@ -887,9 +887,10 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
     expect(newPe!.status).toBe('SUCCEEDED');
   });
 
-  // CANCELED guard: a replay of a historical invoice against a since-canceled
-  // donation must not write a fresh PaymentEvent into the ledger.
-  it('renewal against a CANCELED donation: skips PE insert', async () => {
+  // A charge that settles after a donation is canceled still represents real
+  // money. The handler must record a PaymentEvent for it without reactivating
+  // the donation.
+  it('renewal against a CANCELED donation: records the PE but does not reactivate', async () => {
     const donation = await prisma.donation.create({
       data: donationFactory({
         userId: USER,
@@ -898,24 +899,22 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
         mode: 'RECURRING',
         cadence: 'MONTHLY',
         status: 'CANCELED',
-        stripeSubscriptionId: 'sub_inv_canceled_1',
-        stripeCustomerId: 'cus_inv_canceled_1',
+        stripeSubscriptionId: 'sub_inv_canceled_2',
+        stripeCustomerId: 'cus_inv_canceled_2',
       }),
     });
-
-    const initialPeCount = await prisma.paymentEvent.count();
 
     await expect(
       service.handle(
         makeStripeEvent(
           'invoice.payment_succeeded',
           {
-            id: 'in_test_canceled_1',
+            id: 'in_test_canceled_2',
             amount_paid: 2500,
             currency: 'usd',
-            customer: 'cus_inv_canceled_1',
-            payment_intent: 'pi_inv_canceled_1',
-            subscription: 'sub_inv_canceled_1',
+            customer: 'cus_inv_canceled_2',
+            payment_intent: 'pi_inv_canceled_2',
+            subscription: 'sub_inv_canceled_2',
             billing_reason: 'subscription_cycle',
             metadata: {
               source: 'donation',
@@ -923,19 +922,99 @@ describe('invoice.payment_succeeded — donation arm (e2e)', () => {
               userId: USER,
             },
           },
-          'evt_inv_canceled_1',
+          'evt_inv_canceled_2',
         ),
       ),
     ).resolves.not.toThrow();
 
-    // Donation status must remain CANCELED — not flipped to ACTIVE.
+    // Donation status must remain CANCELED — never reactivated.
     const afterHandle = await prisma.donation.findUniqueOrThrow({
       where: { id: donation.id },
     });
     expect(afterHandle.status).toBe('CANCELED');
 
-    // No new PaymentEvent row was inserted.
-    expect(await prisma.paymentEvent.count()).toBe(initialPeCount);
+    // A new PaymentEvent row was inserted with the correct shape.
+    const newPe = await prisma.paymentEvent.findFirst({
+      where: { stripeInvoiceId: 'in_test_canceled_2', kind: 'DONATION' },
+    });
+    expect(newPe).not.toBeNull();
+    expect(newPe!.donationId).toBe(donation.id);
+    expect(newPe!.status).toBe('SUCCEEDED');
+    expect(newPe!.amountCents).toBe(2500);
+  });
+
+  // Stale-replay guard: when a SUCCEEDED PaymentEvent already exists for the
+  // same stripeInvoiceId, a second delivery of invoice.payment_succeeded must
+  // be a no-op — the PE count must not increase and the donation stays CANCELED.
+  it('stale replay against a CANCELED donation: no-ops when SUCCEEDED PE already exists', async () => {
+    const donation = await prisma.donation.create({
+      data: donationFactory({
+        userId: USER,
+        campaignId: CAMPAIGN_ID,
+        organizationId: HOUSE_ORG_ID,
+        mode: 'RECURRING',
+        cadence: 'MONTHLY',
+        status: 'CANCELED',
+        stripeSubscriptionId: 'sub_inv_canceled_3',
+        stripeCustomerId: 'cus_inv_canceled_3',
+      }),
+    });
+
+    // Pre-create the SUCCEEDED PE as if a prior delivery already recorded it.
+    await prisma.paymentEvent.create({
+      data: {
+        organizationId: HOUSE_ORG_ID,
+        userId: USER,
+        kind: 'DONATION',
+        status: 'SUCCEEDED',
+        amountCents: 2500,
+        currency: 'usd',
+        donationId: donation.id,
+        stripeInvoiceId: 'in_test_canceled_3',
+        stripePaymentIntentId: 'pi_inv_canceled_3',
+        stripeCustomerId: 'cus_inv_canceled_3',
+        succeededAt: new Date(),
+      },
+    });
+
+    const peCountBefore = await prisma.paymentEvent.count({
+      where: { stripeInvoiceId: 'in_test_canceled_3', kind: 'DONATION' },
+    });
+
+    await expect(
+      service.handle(
+        makeStripeEvent(
+          'invoice.payment_succeeded',
+          {
+            id: 'in_test_canceled_3',
+            amount_paid: 2500,
+            currency: 'usd',
+            customer: 'cus_inv_canceled_3',
+            payment_intent: 'pi_inv_canceled_3',
+            subscription: 'sub_inv_canceled_3',
+            billing_reason: 'subscription_cycle',
+            metadata: {
+              source: 'donation',
+              donationId: donation.id,
+              userId: USER,
+            },
+          },
+          'evt_inv_canceled_3',
+        ),
+      ),
+    ).resolves.not.toThrow();
+
+    // PE count must not have changed — no duplicate row.
+    const peCountAfter = await prisma.paymentEvent.count({
+      where: { stripeInvoiceId: 'in_test_canceled_3', kind: 'DONATION' },
+    });
+    expect(peCountAfter).toBe(peCountBefore);
+
+    // Donation status remains CANCELED.
+    const afterHandle = await prisma.donation.findUniqueOrThrow({
+      where: { id: donation.id },
+    });
+    expect(afterHandle.status).toBe('CANCELED');
   });
 
   // FAILED → SUCCEEDED upgrade: a prior dunning attempt wrote a FAILED PE for
