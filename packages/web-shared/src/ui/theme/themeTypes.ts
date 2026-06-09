@@ -1,7 +1,10 @@
-export type Theme = "atrium" | "noir" | "vellum";
+export type ThemeMode = "light" | "dark" | "system";
 
-export const VALID_THEMES: ReadonlySet<string> = new Set<Theme>([
-  "atrium",
-  "noir",
-  "vellum",
+export const VALID_MODES: ReadonlySet<string> = new Set<ThemeMode>([
+  "light",
+  "dark",
+  "system",
 ]);
+
+/** @deprecated Use ThemeMode */
+export type Theme = ThemeMode;

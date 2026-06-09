@@ -1,5 +1,3 @@
 @import "tailwindcss";
 @import "@organizer-hub/web-shared/ui/tokens.css";
-@import "@organizer-hub/web-shared/ui/tokens.theme.noir.css";
-@import "@organizer-hub/web-shared/ui/tokens.theme.vellum.css";
 @import "@organizer-hub/web-shared/ui/tokens.layout.css";

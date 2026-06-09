@@ -261,8 +261,6 @@
 .link { color: var(--accent); cursor: pointer; font-weight: 600; }
 .link:hover { color: var(--accent-2); text-decoration: underline; text-underline-offset: 3px; }
 
-/* tighten serif display on noir (sans) so weights look right */
-[data-theme="noir"] .brand__mark { font-family: var(--font-display); font-weight: 700; }
 
 /* ---------------- SCROLLBAR ---------------- */
 ::-webkit-scrollbar { width: 11px; height: 11px; }
@@ -513,7 +511,11 @@
   padding: 6px 13px; border-radius: calc(var(--btn-radius) - 1px); transition: background .15s ease, color .15s ease; white-space: nowrap;
 }
 .segmented button.is-active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-[data-theme="noir"] .segmented button.is-active { background: var(--line-strong); }
+/* In dark mode the active chip reads better with a slightly stronger fill */
+[data-theme="dark"] .segmented button.is-active { background: var(--line-strong); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .segmented button.is-active { background: var(--line-strong); }
+}
 
 /* ---- charts ---- */
 .bars { display: flex; align-items: flex-end; gap: 10px; height: 200px; padding-top: 10px; }

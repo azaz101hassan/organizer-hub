@@ -2,14 +2,14 @@ import Link from "next/link";
 import { Icon, NavItem } from "@organizer-hub/web-shared/ui";
 import { ThemeSwitcher } from "@organizer-hub/web-shared/ui/theme";
 import type { SessionIdentity } from "@organizer-hub/web-shared";
-import type { Theme } from "@organizer-hub/web-shared/ui/theme";
+import type { ThemeMode } from "@organizer-hub/web-shared/ui/theme";
 
 export function DashSidebar({
   session,
   currentTheme,
 }: {
   session: SessionIdentity;
-  currentTheme: Theme;
+  currentTheme: ThemeMode;
 }) {
   const displayName = session.name ?? session.email ?? session.sub ?? "";
   const initials =
@@ -63,7 +63,7 @@ export function DashSidebar({
           className="eyebrow eyebrow--muted"
           style={{ paddingLeft: 6, marginBottom: 8 }}
         >
-          Theme
+          Appearance
         </p>
         <ThemeSwitcher cookieName="oh_member_theme" current={currentTheme} />
       </div>

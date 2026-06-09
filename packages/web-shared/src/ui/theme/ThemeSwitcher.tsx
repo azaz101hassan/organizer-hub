@@ -2,13 +2,13 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Theme } from "./themeTypes";
+import type { ThemeMode } from "./themeTypes";
 import { setThemeCookie } from "./setThemeCookie";
 
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "atrium", label: "Atrium" },
-  { value: "noir", label: "Noir" },
-  { value: "vellum", label: "Vellum" },
+const MODES: { value: ThemeMode; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
 ];
 
 export function ThemeSwitcher({
@@ -16,20 +16,22 @@ export function ThemeSwitcher({
   current,
 }: {
   cookieName: string;
-  current: Theme;
+  current: ThemeMode;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  function handleSelect(theme: Theme) {
-    if (theme === current) return;
-    // Flip the data-theme attribute immediately so the visual change is instant
-    // without waiting for a server round-trip.
+  function handleSelect(mode: ThemeMode) {
+    if (mode === current) return;
+    // Flip the data-theme attribute immediately so the visual change is
+    // instant without waiting for a server round-trip. "system" matches no
+    // CSS rule intentionally — color-scheme: light dark then resolves from
+    // the OS via light-dark() natively, with no matchMedia JS needed.
     if (typeof document !== "undefined") {
-      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-theme", mode);
     }
     startTransition(async () => {
-      await setThemeCookie(cookieName, theme);
+      await setThemeCookie(cookieName, mode);
       // Refresh SSR tree so subsequent server renders pick up the new cookie.
       router.refresh();
     });
@@ -38,18 +40,18 @@ export function ThemeSwitcher({
   return (
     <div
       role="radiogroup"
-      aria-label="Colour theme"
+      aria-label="Appearance"
       style={{ display: "flex", gap: 4, opacity: isPending ? 0.7 : 1 }}
     >
-      {THEMES.map((t) => {
-        const active = t.value === current;
+      {MODES.map((m) => {
+        const active = m.value === current;
         return (
           <button
-            key={t.value}
+            key={m.value}
             role="radio"
             aria-checked={active}
             disabled={isPending}
-            onClick={() => handleSelect(t.value)}
+            onClick={() => handleSelect(m.value)}
             style={{
               flex: 1,
               padding: "5px 0",
@@ -66,7 +68,7 @@ export function ThemeSwitcher({
               whiteSpace: "nowrap",
             }}
           >
-            {t.label}
+            {m.label}
           </button>
         );
       })}

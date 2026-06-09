@@ -18,11 +18,12 @@ Editorial, considered, premium. The product is a pane of glass over event
 organizers and their members — confident enough to take the visual lead,
 quiet enough to defer to the evenings on the calendar.
 
-Three coherent themes ship together: **Atrium** (editorial ivory + brass,
-the member-app default), **Noir** (cinematic near-black + amber, the admin
-control-room default), and **Vellum** (warm paper + deep forest). All three
-share the same component vocabulary and interaction patterns — a theme
-switch flips tokens, never layouts.
+One cohesive theme ships in two modes. **Light mode** is a pure-white
+gallery — high contrast, open, editorial. **Dark mode** is blue-black dusk
+— deep navy shadows, the same deep-cobalt accent reads as a luminous steel
+blue, Spectral as the display serif carries equal weight in both. Mode
+follows the system by default; users can pin Light or Dark per browser. A
+mode switch flips tokens, never layouts.
 
 ## Anti-references
 
@@ -44,12 +45,12 @@ switch flips tokens, never layouts.
    / muted / faint / mono), not by box decoration.
 3. **Data over decoration.** Lists, tables, and data panels are first-class.
    The admin app is a control room; the member app is a calendar.
-4. **Accessible by default.** WCAG AA contrast on every theme combination.
-   Visible focus rings on every interactive element. `prefers-reduced-motion`
-   respected.
+4. **Accessible by default.** WCAG AA contrast in both light and dark modes
+   (every text/bg pair ≥4.5:1, body ink ≥7:1). Visible focus rings on every
+   interactive element. `prefers-reduced-motion` respected.
 5. **Compose, don't fork.** New variants extend a primitive; three forked
    variants is the signal to refactor, not to add a fourth.
 
 ## Accessibility & Inclusion
 
-WCAG AA (4.5:1 body text). Supports dark mode via system preference. Reduced motion respected.
+WCAG AA (4.5:1 body text, ≥7:1 for primary ink). Light and dark modes follow the system preference by default; users may pin either mode. Reduced motion respected.

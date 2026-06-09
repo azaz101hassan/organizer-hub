@@ -3,7 +3,7 @@ import { PageHead } from "../../components/PageHead";
 import { SettingsClient } from "./SettingsClient";
 
 export default async function SettingsPage() {
-  const theme = await readThemeCookie("oh_admin_theme", "noir");
+  const theme = await readThemeCookie("oh_admin_theme", "system");
   return (
     <>
       <PageHead

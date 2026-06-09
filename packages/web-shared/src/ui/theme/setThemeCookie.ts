@@ -1,15 +1,15 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { type Theme, VALID_THEMES } from "./themeTypes";
+import { type ThemeMode, VALID_MODES } from "./themeTypes";
 
 export async function setThemeCookie(
   cookieName: string,
-  theme: Theme,
+  mode: ThemeMode,
 ): Promise<void> {
-  if (!VALID_THEMES.has(theme)) return;
+  if (!VALID_MODES.has(mode)) return;
   const store = await cookies();
-  store.set(cookieName, theme, {
+  store.set(cookieName, mode, {
     path: "/",
     maxAge: 60 * 60 * 24 * 365, // 1 year
     sameSite: "lax",

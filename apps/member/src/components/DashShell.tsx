@@ -11,7 +11,7 @@ export async function DashShell({ children }: { children: ReactNode }) {
       refresh: "oh_member_refresh",
       accessToken: "oh_member_access_token",
     }),
-    readThemeCookie("oh_member_theme", "atrium"),
+    readThemeCookie("oh_member_theme", "system"),
   ]);
   if (!session) redirect("/auth/login");
   return (

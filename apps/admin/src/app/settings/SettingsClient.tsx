@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Theme } from "@organizer-hub/web-shared/ui/theme";
+import type { ThemeMode } from "@organizer-hub/web-shared/ui/theme";
 import { Icon, type IconName } from "@organizer-hub/web-shared/ui";
 import { BrandingTab } from "./BrandingTab";
 
@@ -45,7 +45,7 @@ function PlaceholderTab({ label }: { label: string }) {
   );
 }
 
-export function SettingsClient({ currentTheme }: { currentTheme: Theme }) {
+export function SettingsClient({ currentTheme }: { currentTheme: ThemeMode }) {
   const [active, setActive] = useState<TabId>("branding");
 
   return (

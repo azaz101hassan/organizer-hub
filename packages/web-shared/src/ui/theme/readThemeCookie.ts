@@ -1,13 +1,15 @@
 import { cookies } from "next/headers";
-import { type Theme, VALID_THEMES } from "./themeTypes";
+import { type ThemeMode, VALID_MODES } from "./themeTypes";
 
-export type { Theme } from "./themeTypes";
+export type { ThemeMode } from "./themeTypes";
 
 export async function readThemeCookie(
   name: string,
-  fallback: Theme,
-): Promise<Theme> {
+  fallback: ThemeMode,
+): Promise<ThemeMode> {
   const store = await cookies();
   const raw = store.get(name)?.value;
-  return raw && VALID_THEMES.has(raw) ? (raw as Theme) : fallback;
+  // Legacy values ("atrium", "noir", "vellum") are not in VALID_MODES and
+  // fall through to the fallback.
+  return raw && VALID_MODES.has(raw) ? (raw as ThemeMode) : fallback;
 }

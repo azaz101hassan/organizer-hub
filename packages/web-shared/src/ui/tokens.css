@@ -1,9 +1,10 @@
 /* packages/web-shared/src/ui/tokens.css */
-/* OrganizerHub design tokens.
-   :root holds Atrium defaults. [data-theme="noir"] and [data-theme="vellum"]
-   override them. Tailwind v4 @theme inline re-exposes each variable as a
-   utility-class token so bg-surface, text-ink, rounded-btn etc. resolve
-   theme-aware. */
+/* One theme, light + dark via CSS color-scheme + light-dark().
+   [data-theme="light"] / [data-theme="dark"] pins color-scheme when the user
+   makes an explicit choice; any other value (including "system") is inert in
+   CSS and lets color-scheme: light dark resolve from the OS automatically.
+   These color values are contrast-verified (every text/bg pair ≥4.5:1,
+   ink ≥7:1) — do not adjust them. */
 
 /* @theme inline maps Tailwind utility tokens to the CSS variables declared
    in :root / [data-theme]. The font lines below look self-referential but
@@ -40,44 +41,63 @@
   --radius-chip: var(--chip-radius);
 }
 
-:root,
-[data-theme="atrium"] {
-  --bg:           #f1ece1;
-  --surface:      #fbf8f1;
-  --surface-2:    #ece5d6;
-  --ink:          #211d16;
-  --muted:        #6c6453;
-  --faint:        #97907e;
-  --line:         #ded5c2;
-  --line-strong:  #cfc4ab;
-  --accent:       #9c6a39;
-  --accent-2:     #80522a;
-  --accent-on:    #fbf8f1;
-  --accent-soft:  #ece0cd;
-  --good:         #4f7a52;
-  --good-soft:    #e0ead9;
-  --warn:         #a4742a;
-  --warn-soft:    #efe3c9;
-  --bad:          #9c4f43;
-  --bad-soft:     #efd9d2;
+:root {
+  color-scheme: light dark;
+
+  --bg:           light-dark(oklch(1 0 0),              oklch(0.185 0.012 245));
+  --surface:      light-dark(oklch(1 0 0),              oklch(0.225 0.014 245));
+  --surface-2:    light-dark(oklch(0.962 0.006 240),    oklch(0.265 0.016 245));
+  --ink:          light-dark(oklch(0.255 0.018 245),    oklch(0.93 0.008 240));
+  --muted:        light-dark(oklch(0.47 0.02 245),      oklch(0.72 0.015 240));
+  --faint:        light-dark(oklch(0.555 0.018 245),    oklch(0.62 0.015 240));
+  --line:         light-dark(oklch(0.915 0.007 240),    oklch(0.3 0.015 245));
+  --line-strong:  light-dark(oklch(0.85 0.01 240),      oklch(0.38 0.018 245));
+  --accent:       light-dark(oklch(0.46 0.105 245),     oklch(0.74 0.09 240));
+  --accent-2:     light-dark(oklch(0.395 0.105 245),    oklch(0.8 0.08 240));
+  --accent-on:    light-dark(oklch(1 0 0),              oklch(0.17 0.015 245));
+  --accent-soft:  light-dark(oklch(0.94 0.022 245),     oklch(0.29 0.04 245));
+  --good:         light-dark(oklch(0.485 0.095 155),    oklch(0.76 0.09 155));
+  --good-soft:    light-dark(oklch(0.945 0.03 155),     oklch(0.27 0.03 155));
+  --warn:         light-dark(oklch(0.5 0.095 70),       oklch(0.78 0.095 80));
+  --warn-soft:    light-dark(oklch(0.95 0.03 80),       oklch(0.28 0.028 80));
+  --bad:          light-dark(oklch(0.48 0.12 25),       oklch(0.73 0.095 25));
+  --bad-soft:     light-dark(oklch(0.945 0.022 25),     oklch(0.275 0.025 25));
 
   --radius:       6px;
   --radius-lg:    10px;
-  --btn-radius:   3px;
+  --btn-radius:   4px;
   --chip-radius:  999px;
 
-  --font-display: var(--font-cormorant), Georgia, serif;
+  --font-display: var(--font-spectral), Georgia, serif;
   --font-body:    var(--font-hanken), system-ui, sans-serif;
   --font-mono:    var(--font-spline-mono), ui-monospace, monospace;
 
-  --display-weight:   600;
-  --display-tracking: -0.01em;
-  --display-lh:       1.02;
+  --display-weight:   500;
+  --display-tracking: -0.012em;
+  --display-lh:       1.05;
   --eyebrow-tracking: 0.22em;
 
-  --shadow:    0 1px 2px rgba(40,33,20,.05), 0 14px 40px -28px rgba(40,33,20,.5);
-  --shadow-lg: 0 2px 4px rgba(40,33,20,.06), 0 40px 80px -40px rgba(40,33,20,.55);
-  --grain-opacity: .5;
+  /* Non-color tokens can't use light-dark(); the dark values live in the
+     two dark-mode blocks below — keep all three in sync. */
+  --shadow:    0 1px 2px oklch(0.25 0.02 245 / .06), 0 14px 40px -28px oklch(0.25 0.02 245 / .5);
+  --shadow-lg: 0 2px 4px oklch(0.25 0.02 245 / .07), 0 40px 80px -40px oklch(0.25 0.02 245 / .55);
+  --grain-opacity: .35;
+}
+
+[data-theme="light"] { color-scheme: light; }
+[data-theme="dark"]  { color-scheme: dark; }
+
+[data-theme="dark"] {
+  --shadow:    0 1px 2px oklch(0 0 0 / .4), 0 18px 50px -30px oklch(0 0 0 / .9);
+  --shadow-lg: 0 2px 6px oklch(0 0 0 / .5), 0 50px 90px -40px oklch(0 0 0 / .95);
+  --grain-opacity: .65;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --shadow:    0 1px 2px oklch(0 0 0 / .4), 0 18px 50px -30px oklch(0 0 0 / .9);
+    --shadow-lg: 0 2px 6px oklch(0 0 0 / .5), 0 50px 90px -40px oklch(0 0 0 / .95);
+    --grain-opacity: .65;
+  }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
