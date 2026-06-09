@@ -97,7 +97,7 @@ export default async function DashboardMembershipPage() {
           }}
         >
           Your last payment failed. Update your payment method to keep
-          coverage — Stripe will retry automatically.
+          coverage; Stripe will retry automatically.
         </div>
       )}
 

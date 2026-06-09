@@ -188,7 +188,7 @@ export default async function PublicEventDetailPage({
 
             {ticketTypes.length === 0 ? (
               <p className="muted" style={{ marginTop: 12 }}>
-                Tickets aren&apos;t on sale yet — check back soon.
+                Tickets aren&apos;t on sale yet. Check back soon.
               </p>
             ) : (
               <Card

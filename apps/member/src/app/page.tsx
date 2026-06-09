@@ -55,8 +55,7 @@ export default async function HomePage() {
             </Display>
             <Lede style={{ maxWidth: 460 }}>
               One pane of glass for the societies, clubs, and collectives behind
-              the calendar — and a membership that opens the door to all of
-              them.
+              the calendar. A membership opens the door to all of them.
             </Lede>
             <div style={{ display: "flex", gap: 12, marginTop: 30 }}>
               <Link href="/events">

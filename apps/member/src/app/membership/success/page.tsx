@@ -37,7 +37,7 @@ export default async function MembershipSuccessPage() {
             </h1>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
               Stripe is still confirming your subscription. Refresh in a few
-              seconds, or head to your dashboard — we&apos;ll update it as
+              seconds, or head to your dashboard. We&apos;ll update it as
               soon as the webhook lands.
             </p>
           </>

@@ -150,18 +150,20 @@ export function DonatePanel({
             })}
           </div>
 
-          <Field label="Custom amount" htmlFor={inputId}>
-            <Input
-              id={inputId}
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="1"
-              value={customValue}
-              onChange={handleCustomChange}
-              placeholder="Enter amount"
-            />
-          </Field>
+          <div style={{ marginTop: 15 }}>
+            <Field label="Custom amount" htmlFor={inputId}>
+              <Input
+                id={inputId}
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="1"
+                value={customValue}
+                onChange={handleCustomChange}
+                placeholder="Enter amount"
+              />
+            </Field>
+          </div>
 
           <SubmitButton disabled={isSubmitDisabled} />
         </fieldset>

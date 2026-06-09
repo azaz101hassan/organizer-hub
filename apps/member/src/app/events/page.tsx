@@ -77,7 +77,7 @@ export default async function EventsPage({
         {labels.length > 0 && <FilterChips labels={labels} />}
         {page.items.length === 0 ? (
           <p className="muted">
-            No upcoming events yet — check back soon.
+            No upcoming events yet. Check back soon.
           </p>
         ) : (
           <div

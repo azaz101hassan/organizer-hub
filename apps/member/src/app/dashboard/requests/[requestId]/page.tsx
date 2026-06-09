@@ -127,7 +127,7 @@ function StateBody({
   if (req.status === "APPROVED" && req.hasTicket) {
     return (
       <p style={{ fontSize: 14, color: "var(--good)", margin: 0 }}>
-        Approved — your ticket has been issued. See it in your tickets.
+        Approved: your ticket has been issued. See it in your tickets.
       </p>
     );
   }

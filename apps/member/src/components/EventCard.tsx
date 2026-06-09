@@ -3,7 +3,6 @@ import {
   Card,
   Chip,
   Display,
-  Eyebrow,
   Icon,
   Poster,
   monogram,
@@ -67,9 +66,6 @@ export function EventCard({
             flex: 1,
           }}
         >
-          {event.organization && (
-            <Eyebrow muted>{event.organization.name}</Eyebrow>
-          )}
           <Display as="h3" size={tall ? "md" : "sm"}>
             {event.title}
           </Display>

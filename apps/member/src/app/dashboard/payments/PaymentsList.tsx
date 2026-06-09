@@ -68,7 +68,13 @@ export default function PaymentsList({
           textAlign: "center",
         }}
       >
-        <p className="muted" style={{ fontSize: 14, margin: 0 }}>No payments yet.</p>
+        <p className="muted" style={{ fontSize: 14, margin: "0 0 6px" }}>No payments yet.</p>
+        <p className="faint" style={{ fontSize: 13, margin: "0 0 14px" }}>
+          Charges appear here after you subscribe or make a donation.
+        </p>
+        <Link href="/membership" className="link" style={{ fontSize: 13 }}>
+          Browse plans
+        </Link>
       </div>
     );
   }
@@ -114,7 +120,7 @@ export default function PaymentsList({
                 {KIND_LABEL[p.kind] ?? p.kind}
               </span>
               {p.description ? (
-                <span className="muted"> — {p.description}</span>
+                <span className="muted">, {p.description}</span>
               ) : null}
             </span>
             <Pill tone={statusTone(p.status)}>

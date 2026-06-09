@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, UnauthorizedError } from "@organizer-hub/web-shared";
 import type { RequesterTicketRequestView } from "@organizer-hub/web-shared";
 import { Card, Display, Eyebrow, Lede } from "@organizer-hub/web-shared/ui";
@@ -27,9 +28,15 @@ export default async function RequestsPage() {
 
       {requests.length === 0 ? (
         <Card style={{ padding: "40px 32px", textAlign: "center", borderStyle: "dashed" }}>
-          <p className="muted" style={{ fontSize: 14 }}>
+          <p className="muted" style={{ fontSize: 14, margin: "0 0 6px" }}>
             You haven&apos;t requested any tickets yet.
           </p>
+          <p className="faint" style={{ fontSize: 13, margin: "0 0 14px" }}>
+            Requests are created when a ticket tier is full and you join the waitlist.
+          </p>
+          <Link href="/events" className="link" style={{ fontSize: 13 }}>
+            Browse events
+          </Link>
         </Card>
       ) : (
         <RequestList requests={requests} />

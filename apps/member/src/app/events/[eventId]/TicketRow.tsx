@@ -109,7 +109,7 @@ export default function TicketRow({
               color: "var(--warn)",
             }}
           >
-            Request submitted — we&apos;ll email you when the organizer responds.{" "}
+            Request submitted. We&apos;ll email you when the organizer responds.{" "}
             <Link href="/dashboard/requests" className="link">
               Track it in your requests.
             </Link>

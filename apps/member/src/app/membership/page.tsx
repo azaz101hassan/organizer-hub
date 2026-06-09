@@ -29,7 +29,7 @@ const TIER_COPY: Record<
   },
   GOLD: {
     displayName: "Gold",
-    tagline: "Top tier — every membership event.",
+    tagline: "Top tier: every membership event.",
     perks: [
       "Everything in Silver",
       "Free claim on Gold-tier events",
@@ -73,8 +73,8 @@ export default async function MembershipPage({ searchParams }: PageProps) {
           Become a member
         </Display>
         <Lede style={{ maxWidth: 520, margin: "0 auto" }}>
-          Pick a tier. Each tier covers everything in the tiers beneath it —
-          claim covered seats free, across every organizer on the platform.
+          Pick a tier. Each tier covers everything below it.
+          Claim covered seats free, across every organizer on the platform.
         </Lede>
 
         {error && (

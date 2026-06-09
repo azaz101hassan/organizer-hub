@@ -49,7 +49,7 @@
 .btn--sm { padding: 7px 13px; font-size: 12.5px; }
 .btn--lg { padding: 13px 26px; font-size: 15px; }
 .btn--block { width: 100%; }
-.btn:disabled { opacity: .5; cursor: default; transform: none; }
+.btn:disabled { opacity: .42; cursor: not-allowed; transform: none; pointer-events: auto; }
 
 /* ---------------- CHIPS / BADGES ---------------- */
 .chip {

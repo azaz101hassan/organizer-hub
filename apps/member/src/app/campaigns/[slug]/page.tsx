@@ -10,13 +10,11 @@ import {
   Eyebrow,
   Display,
   Lede,
-  Card,
   ProgressBar,
   DonatePanel,
   type DonationCadence,
 } from "@organizer-hub/web-shared/ui";
 import { PublicShell } from "../../../components/PublicShell";
-import { Fact } from "../../../components/Fact";
 import { donateNow } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -129,40 +127,59 @@ export default async function CampaignPage({
               {data.campaign.name}
             </Display>
             {data.campaign.description ? (
-              <Lede style={{ marginBottom: 24 }}>{data.campaign.description}</Lede>
+              <Lede style={{ marginBottom: 28 }}>{data.campaign.description}</Lede>
             ) : null}
+
+            <div style={{ marginBottom: 28 }}>
+              <ProgressBar
+                valueCents={safeRaised}
+                targetCents={safeTarget}
+                label={`Fundraising progress for ${data.campaign.name}`}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 6,
+                  marginTop: 10,
+                }}
+              >
+                <span style={{ fontSize: 20, fontWeight: 700, color: "var(--ink)" }}>
+                  ${(safeRaised / 100).toLocaleString()}
+                </span>
+                <span className="muted" style={{ fontSize: 14 }}>
+                  raised of ${(safeTarget / 100).toLocaleString()} goal
+                </span>
+                <span
+                  className="faint"
+                  style={{ fontSize: 13, marginLeft: "auto" }}
+                >
+                  {data.campaign.donorCount} donor{data.campaign.donorCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              {validDeadlineMs !== null && (
+                <p className="faint" style={{ margin: "6px 0 0", fontSize: 13 }}>
+                  {/* Deadline is a date-only value parsed as UTC midnight; render in
+                      UTC so donors read the same calendar date the admin entered. */}
+                  {isClosed ? "Ended" : "Ends"}{" "}
+                  {new Date(validDeadlineMs).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  })}
+                </p>
+              )}
+            </div>
+
             {data.campaign.recentGiftCount > 0 && (
-              <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 0, fontSize: 13.5 }}>
                 {data.campaign.recentGiftCount} gift{data.campaign.recentGiftCount === 1 ? "" : "s"} in the last 30 days.
               </p>
             )}
           </article>
 
           <aside>
-            <Card padded>
-              <ProgressBar
-                valueCents={safeRaised}
-                targetCents={safeTarget}
-                label={`Fundraising progress for ${data.campaign.name}`}
-              />
-              <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-                <Fact icon="dollar" label="Raised">
-                  ${(safeRaised / 100).toLocaleString()}
-                </Fact>
-                <Fact icon="pie" label="Goal">
-                  ${(safeTarget / 100).toLocaleString()}
-                </Fact>
-                <Fact icon="users" label="Donors">
-                  {data.campaign.donorCount}
-                </Fact>
-                {validDeadlineMs !== null && (
-                  <Fact icon="calendar" label="Ends">
-                    {new Date(validDeadlineMs).toLocaleDateString()}
-                  </Fact>
-                )}
-              </div>
-            </Card>
-
             {sanitizedError ? (
               <p role="alert" className="alert alert--bad" style={{ marginTop: 16 }}>
                 {sanitizedError}

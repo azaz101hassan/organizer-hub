@@ -49,13 +49,15 @@ export default async function MyDonationsPage() {
             borderStyle: "dashed",
           }}
         >
-          <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-            You don&apos;t have any recurring donations yet.{" "}
-            <Link href="/coalitions" className="link">
-              Browse our campaigns
-            </Link>
-            .
+          <p className="muted" style={{ fontSize: 14, margin: "0 0 6px" }}>
+            You don&apos;t have any recurring donations yet.
           </p>
+          <p className="faint" style={{ fontSize: 13, margin: "0 0 14px" }}>
+            Set up a recurring gift and it will appear here.
+          </p>
+          <Link href="/donate" className="link" style={{ fontSize: 13 }}>
+            Support a campaign
+          </Link>
         </Card>
       ) : (
         <ul
