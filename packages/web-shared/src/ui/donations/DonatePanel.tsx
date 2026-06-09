@@ -107,7 +107,7 @@ export function DonatePanel({
 
   return (
     <Card padded>
-      <form action={action} method="post">
+      <form action={action}>
         <input type="hidden" name="campaignId" value={campaignId} />
         <input
           type="hidden"

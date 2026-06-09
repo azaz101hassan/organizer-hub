@@ -58,7 +58,9 @@ export async function apiFetch<T = unknown>(
   if (!res.ok) throw new ApiError(res.status, await res.text());
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // A null controller return arrives as an empty 200 body and must parse as null.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export async function publicApiFetch<T = unknown>(
@@ -71,5 +73,7 @@ export async function publicApiFetch<T = unknown>(
   });
   if (!res.ok) throw new ApiError(res.status, await res.text());
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // A null controller return arrives as an empty 200 body and must parse as null.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
