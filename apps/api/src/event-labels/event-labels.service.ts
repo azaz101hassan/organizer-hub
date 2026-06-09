@@ -13,6 +13,7 @@ export interface EventLabelView {
   name: string;
   slug: string;
   sortOrder: number;
+  eventCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,13 +33,14 @@ const WRITE_ROLES: ReadonlySet<OrganizationRole> = new Set([
   OrganizationRole.ADMIN,
 ]);
 
-function toView(l: DbEventLabel): EventLabelView {
+function toView(l: DbEventLabel, eventCount = 0): EventLabelView {
   return {
     id: l.id,
     organizationId: l.organizationId,
     name: l.name,
     slug: l.slug,
     sortOrder: l.sortOrder,
+    eventCount,
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,
   };
@@ -90,8 +92,9 @@ export class EventLabelsService {
     const rows = await this.prisma.eventLabel.findMany({
       where: { organizationId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { events: true } } },
     });
-    return rows.map(toView);
+    return rows.map((r) => toView(r, r._count.events));
   }
 
   async createForUser(

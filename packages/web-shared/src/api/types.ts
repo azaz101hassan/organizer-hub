@@ -37,6 +37,7 @@ export interface EventLabelView {
   name: string;
   slug: string;
   sortOrder: number;
+  eventCount: number;
   createdAt: string;
   updatedAt: string;
 }

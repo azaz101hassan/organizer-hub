@@ -18,6 +18,7 @@ interface LabelView {
   name: string;
   slug: string;
   sortOrder: number;
+  eventCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -92,6 +93,50 @@ describe('EventLabels (e2e)', () => {
         .expect(200);
       const names = jsonBody<LabelView[]>(res).map((l) => l.name);
       expect(names).toEqual(['Concerts', 'Community', 'Workshops']);
+    });
+
+    it('list returns eventCount 0 for unused labels', async () => {
+      await prisma.eventLabel.create({
+        data: { organizationId: orgId, name: 'Unused', slug: 'unused' },
+      });
+      const res = await request(app.getHttpServer())
+        .get(`/event-labels?organizationId=${orgId}`)
+        .expect(200);
+      const labels = jsonBody<LabelView[]>(res);
+      expect(labels).toHaveLength(1);
+      expect(labels[0].eventCount).toBe(0);
+    });
+
+    it('list returns correct eventCount when events reference the label', async () => {
+      const label = await prisma.eventLabel.create({
+        data: { organizationId: orgId, name: 'With Events', slug: 'with-events' },
+      });
+      await prisma.event.createMany({
+        data: [
+          {
+            organizationId: orgId,
+            title: 'Event A',
+            slug: 'event-a',
+            startsAt: new Date('2026-09-01T18:00:00.000Z'),
+            createdBy: 'owner-sub',
+            labelId: label.id,
+          },
+          {
+            organizationId: orgId,
+            title: 'Event B',
+            slug: 'event-b',
+            startsAt: new Date('2026-09-02T18:00:00.000Z'),
+            createdBy: 'owner-sub',
+            labelId: label.id,
+          },
+        ],
+      });
+      const res = await request(app.getHttpServer())
+        .get(`/event-labels?organizationId=${orgId}`)
+        .expect(200);
+      const labels = jsonBody<LabelView[]>(res);
+      expect(labels).toHaveLength(1);
+      expect(labels[0].eventCount).toBe(2);
     });
 
     it('non-member of the org gets 404', async () => {

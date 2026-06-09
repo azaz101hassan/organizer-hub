@@ -27,10 +27,10 @@ export default async function LabelsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">
           Labels
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-muted">
           Tag events so visitors can filter by category. Slugs are URL-safe and
           unique per organization.
         </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import type { EventLabelView } from "@organizer-hub/web-shared";
 import {
   createLabel,
@@ -20,7 +20,7 @@ export default function LabelsManager({ labels }: { labels: EventLabelView[] }) 
   return (
     <div className="space-y-8">
       <section>
-        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-faint">
           New label
         </h2>
         <form action={createAction} className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_120px_auto]">
@@ -54,25 +54,25 @@ export default function LabelsManager({ labels }: { labels: EventLabelView[] }) 
             <button
               type="submit"
               disabled={createPending}
-              className="h-10 rounded-full bg-blue-600 text-white px-5 text-sm font-medium hover:bg-blue-500 disabled:opacity-50 transition"
+              className="btn btn--primary btn--sm disabled:opacity-50"
             >
               {createPending ? "Adding…" : "Add label"}
             </button>
           </div>
         </form>
         {createState.error && (
-          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{createState.error}</p>
+          <p className="mt-2 text-sm text-bad">{createState.error}</p>
         )}
       </section>
 
       <section>
-        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-faint">
           Existing labels
         </h2>
         {labels.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">No labels yet. Create one above.</p>
+          <p className="mt-3 text-sm text-muted">No labels yet. Create one above.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+          <ul className="mt-3 divide-y divide-line rounded-lg border border-line bg-surface">
             {labels.map((label) => (
               <LabelRow key={label.id} label={label} />
             ))}
@@ -85,12 +85,29 @@ export default function LabelsManager({ labels }: { labels: EventLabelView[] }) 
 
 function LabelRow({ label }: { label: EventLabelView }) {
   const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(label.name);
   const [slug, setSlug] = useState(label.slug);
   const [sortOrder, setSortOrder] = useState(label.sortOrder.toString());
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<NonNullable<LabelFormState["fieldErrors"]>>({});
   const [pending, startTransition] = useTransition();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Dismiss inline confirm on Escape
+  useEffect(() => {
+    if (!confirming) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setConfirming(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirming]);
+
+  // Auto-focus Cancel when confirm strip appears
+  useEffect(() => {
+    if (confirming) cancelRef.current?.focus();
+  }, [confirming]);
 
   function save() {
     setError(null);
@@ -116,14 +133,19 @@ function LabelRow({ label }: { label: EventLabelView }) {
     setEditing(false);
   }
 
-  function remove() {
+  function confirmDelete() {
     setError(null);
-    if (!confirm(`Delete label "${label.name}"?`)) return;
+    setConfirming(false);
     startTransition(async () => {
       const result = await deleteLabel(label.id);
       if (result.error) setError(result.error);
     });
   }
+
+  const inUse = label.eventCount > 0;
+  const usageLabel = inUse
+    ? `${label.eventCount} ${label.eventCount === 1 ? "event" : "events"}`
+    : null;
 
   if (editing) {
     return (
@@ -163,7 +185,7 @@ function LabelRow({ label }: { label: EventLabelView }) {
               type="button"
               onClick={save}
               disabled={pending}
-              className="h-10 rounded-full bg-blue-600 text-white px-4 text-xs font-medium hover:bg-blue-500 disabled:opacity-50 transition"
+              className="btn btn--primary btn--sm disabled:opacity-50"
             >
               {pending ? "Saving…" : "Save"}
             </button>
@@ -173,14 +195,14 @@ function LabelRow({ label }: { label: EventLabelView }) {
               type="button"
               onClick={cancel}
               disabled={pending}
-              className="h-10 rounded-full border border-zinc-300 dark:border-zinc-700 px-4 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 transition"
+              className="btn btn--ghost btn--sm disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
         </div>
         {error && (
-          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>
+          <p className="mt-2 text-sm text-bad">{error}</p>
         )}
       </li>
     );
@@ -189,31 +211,74 @@ function LabelRow({ label }: { label: EventLabelView }) {
   return (
     <li className="flex items-center justify-between gap-4 px-5 py-4">
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">{label.name}</p>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {label.slug} · sort {label.sortOrder}
+        <p className="truncate text-sm font-medium text-ink">{label.name}</p>
+        <p className="mt-0.5 flex items-center gap-2 text-xs text-faint">
+          <span>{label.slug} · sort {label.sortOrder}</span>
+          {usageLabel ? (
+            <span className="text-muted">{usageLabel}</span>
+          ) : (
+            <span className="text-faint">Not used</span>
+          )}
         </p>
         {error && (
-          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>
+          <p className="mt-1 text-xs text-bad">{error}</p>
         )}
       </div>
+
       <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          disabled={pending}
-          className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 transition"
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          onClick={remove}
-          disabled={pending}
-          className="rounded-full border border-red-300 dark:border-red-800 px-3 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 transition"
-        >
-          Delete
-        </button>
+        {confirming ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink whitespace-nowrap">
+              Delete &ldquo;{label.name}&rdquo;?
+            </span>
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={() => setConfirming(false)}
+              disabled={pending}
+              className="btn btn--ghost btn--sm disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={pending}
+              className="btn btn--danger btn--sm disabled:opacity-50"
+            >
+              {pending ? "Deleting…" : "Delete label"}
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              disabled={pending}
+              className="btn btn--ghost btn--sm disabled:opacity-50"
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              disabled={pending || inUse}
+              title={
+                inUse
+                  ? `In use by ${label.eventCount} ${label.eventCount === 1 ? "event" : "events"} — reassign or delete those events first`
+                  : undefined
+              }
+              aria-label={
+                inUse
+                  ? `Cannot delete — label is used by ${label.eventCount} ${label.eventCount === 1 ? "event" : "events"}`
+                  : `Delete label ${label.name}`
+              }
+              className="btn btn--danger btn--sm disabled:opacity-50"
+            >
+              Delete
+            </button>
+          </>
+        )}
       </div>
     </li>
   );
@@ -248,11 +313,8 @@ function TextField(props: TextFieldProps) {
     error,
   } = props;
   return (
-    <div>
-      <label
-        htmlFor={name}
-        className="block text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300"
-      >
+    <div className="field">
+      <label htmlFor={name} className="field__label">
         {label}
       </label>
       <input
@@ -266,10 +328,10 @@ function TextField(props: TextFieldProps) {
         value={value}
         onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         disabled={disabled}
-        className="mt-1 block h-10 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
+        className="input"
       />
       {error && (
-        <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p className="mt-1 text-xs text-bad">{error}</p>
       )}
     </div>
   );
